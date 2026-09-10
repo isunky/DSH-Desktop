@@ -14,12 +14,20 @@ concurrency:
 
 jobs:
   validate:
+    name: Validate Tauri client
     runs-on: windows-latest
     steps:
       - name: Checkout client and upstream
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt
+          rustflags: ''
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -39,7 +47,11 @@ jobs:
       - name: Validate source and upstream pin
         run: |
           pnpm run client:check
-          node --check client/electron/main.mjs
-          node --check client/electron/preload.cjs
-          node --check client/electron/client-release.mjs
-          node --test scripts/web-readiness.test.mjs
+          node --check scripts/client.mjs
+          node --check client/runtime/core-manager.mjs
+          node --check client/runtime/hide-console.cjs
+          node --check client/tauri/loading.js
+          node --check client/tauri/shell.js
+          node --test client/runtime/hide-console.test.cjs
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo check --manifest-path src-tauri/Cargo.toml

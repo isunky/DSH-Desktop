@@ -654,7 +654,10 @@ fn hide_descendant_consoles(command: &mut Command, app: &AppHandle) -> Result<()
         let existing = std::env::var("NODE_OPTIONS").unwrap_or_default();
         // NODE_OPTIONS consumes backslash escapes inside quoted paths.
         let preload = preload.to_string_lossy().replace('\\', "/");
-        command.env("NODE_OPTIONS", format!("{existing} --require \"{preload}\""));
+        command.env(
+            "NODE_OPTIONS",
+            format!("{existing} --require \"{preload}\""),
+        );
     }
     Ok(())
 }

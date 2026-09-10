@@ -23,6 +23,15 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          rustflags: ''
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.11.4 --locked
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -41,9 +50,12 @@ jobs:
       - name: Build Windows installer
         run: pnpm run client:package:win
 
+      - name: Build Windows portable directory
+        run: pnpm run client:package:dir
+
       - name: Create Windows portable archive
         shell: pwsh
-        run: Compress-Archive -Path artifacts/win-x64/win-unpacked/* -DestinationPath artifacts/win-x64/DeepSeek-Harness-${{ github.ref_name }}-win-x64-portable.zip
+        run: Compress-Archive -Path artifacts/dir/* -DestinationPath artifacts/win-x64/DeepSeek-Harness-${{ github.ref_name }}-win-x64-portable.zip
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -51,7 +63,6 @@ jobs:
           name: windows-x64
           path: |
             artifacts/win-x64/DeepSeek-Harness-*.exe
-            artifacts/win-x64/DeepSeek-Harness-*.blockmap
             artifacts/win-x64/*portable.zip
           if-no-files-found: error
 
@@ -63,6 +74,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          rustflags: ''
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.11.4 --locked
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -88,7 +108,6 @@ jobs:
           name: macos-arm64
           path: |
             artifacts/mac-arm64/*.dmg
-            artifacts/mac-arm64/*.zip
           if-no-files-found: error
 
   mac-x64:
@@ -99,6 +118,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          rustflags: ''
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.11.4 --locked
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -124,7 +152,6 @@ jobs:
           name: macos-x64
           path: |
             artifacts/mac-x64/*.dmg
-            artifacts/mac-x64/*.zip
           if-no-files-found: error
 
   publish:
