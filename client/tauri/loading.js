@@ -51,6 +51,7 @@ async function main() {
   try {
     const url = await invoke('start_client')
     await invoke('navigate_to_core', { url })
+    document.body.classList.add('core-ready')
   } catch (error) {
     if (String(error).includes('启动已取消')) return
     document.body.classList.add('error')

@@ -15,8 +15,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::menu::MenuBuilder;
+use tauri::webview::WebviewBuilder;
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri::{LogicalPosition, LogicalSize, WebviewUrl};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
@@ -60,6 +61,7 @@ struct CurrentCore {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CoreChannel {
     package_name: String,
     registry: String,
@@ -602,6 +604,8 @@ fn spawn_managed(
     mut command: Command,
 ) -> Result<Arc<Mutex<String>>, String> {
     check_cancelled(state)?;
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW, inherited by console descendants.
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -644,6 +648,17 @@ fn wait_process(state: &AppState, kind: ProcessKind) -> Result<ExitStatus, Strin
     }
 }
 
+fn hide_descendant_consoles(command: &mut Command, app: &AppHandle) -> Result<(), String> {
+    if cfg!(target_os = "windows") {
+        let preload = resource_root(app)?.join("client/runtime/hide-console.cjs");
+        let existing = std::env::var("NODE_OPTIONS").unwrap_or_default();
+        // NODE_OPTIONS consumes backslash escapes inside quoted paths.
+        let preload = preload.to_string_lossy().replace('\\', "/");
+        command.env("NODE_OPTIONS", format!("{existing} --require \"{preload}\""));
+    }
+    Ok(())
+}
+
 fn run_manager(
     app: &AppHandle,
     state: &AppState,
@@ -670,6 +685,7 @@ fn run_manager(
         Some(42),
     );
     let mut command = Command::new(&node.executable);
+    hide_descendant_consoles(&mut command, app)?;
     command
         .arg(manager_path)
         .arg("install")
@@ -775,6 +791,7 @@ fn start_core(
     drop(listener);
     let base_url = format!("http://127.0.0.1:{port}");
     let mut command = Command::new(&node.executable);
+    hide_descendant_consoles(&mut command, app)?;
     command
         .arg(&core_entry)
         .args(["web", "--host", "127.0.0.1", "--port"])
@@ -890,12 +907,22 @@ fn navigate_to_core_window(app: &AppHandle, url: &str) -> Result<(), String> {
     if parsed.scheme() != "http" || parsed.host_str() != Some("127.0.0.1") {
         return Err(fail("只允许打开本机 DSH Web UI 地址"));
     }
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| fail("主窗口不存在"))?;
+    let window = app.get_window("main").ok_or_else(|| fail("主窗口不存在"))?;
+    if let Some(core) = app.get_webview("core") {
+        return core.navigate(parsed).map_err(|error| error.to_string());
+    }
+    let size = window
+        .inner_size()
+        .map_err(|error| error.to_string())?
+        .to_logical::<f64>(window.scale_factor().map_err(|error| error.to_string())?);
     window
-        .navigate(parsed)
-        .map_err(|error| fail(format!("打开 DSH Web UI 失败：{error}")))
+        .add_child(
+            WebviewBuilder::new("core", WebviewUrl::External(parsed)),
+            LogicalPosition::new(0.0, 48.0),
+            LogicalSize::new(size.width, (size.height - 48.0).max(1.0)),
+        )
+        .map_err(|error| format!("打开 DSH Web UI 失败：{error}"))?;
+    Ok(())
 }
 
 fn current_core_version(app: &AppHandle) -> String {
@@ -979,6 +1006,17 @@ fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<Strin
 }
 
 fn launch_core_update(app: &AppHandle, state: &AppState) {
+    if app.get_webview("core").is_none() {
+        let handle = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            handle
+                .dialog()
+                .message("请等待客户端启动完成后再检查更新。")
+                .title("DSH 核心更新")
+                .blocking_show();
+        });
+        return;
+    }
     if state.inner.update_in_progress.swap(true, Ordering::SeqCst) {
         app.dialog()
             .message("核心更新任务正在进行中。")
@@ -995,49 +1033,63 @@ fn launch_core_update(app: &AppHandle, state: &AppState) {
             .inner
             .update_in_progress
             .store(false, Ordering::SeqCst);
-        if let Err(error) = result {
-            app.dialog()
-                .message(error)
-                .title("DSH 核心更新失败")
-                .kind(MessageDialogKind::Error)
-                .blocking_show();
-        }
+        let (message, kind) = match result {
+            Ok(message) => (message, MessageDialogKind::Info),
+            Err(error) => (error, MessageDialogKind::Error),
+        };
+        app.dialog()
+            .message(message)
+            .title("DSH 核心更新")
+            .kind(kind)
+            .blocking_show();
     });
 }
 
-fn install_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let menu = MenuBuilder::new(app)
-        .text("about", "关于与更新")
-        .text("core-update", "检查 DSH 核心更新")
-        .separator()
-        .text("upstream", "打开官方 DSH 源码")
-        .text("client-repository", "打开客户端仓库")
-        .separator()
-        .text("quit", "退出")
-        .build()?;
-    app.set_menu(menu)?;
-    let state = app.state::<AppState>().inner().clone();
-    app.on_menu_event(move |handle, event| match event.id().0.as_str() {
-        "about" => show_about(handle),
-        "core-update" => launch_core_update(handle, &state),
-        "upstream" => {
-            let _ = handle.opener().open_url(
+// Only the bundled shell can operate the window; the core webview has no IPC capability.
+#[tauri::command]
+async fn shell_action(
+    app: AppHandle,
+    webview: tauri::Webview,
+    action: String,
+) -> Result<bool, String> {
+    if webview.label() != "main" {
+        return Err("无权限".into());
+    }
+    let window = app.get_window("main").ok_or("主窗口不存在")?;
+    match action.as_str() {
+        "minimize" => window.minimize().map_err(|e| e.to_string())?,
+        "maximize" => {
+            if window.is_maximized().map_err(|e| e.to_string())? {
+                window.unmaximize().map_err(|e| e.to_string())?;
+            } else {
+                window.maximize().map_err(|e| e.to_string())?;
+            }
+        }
+        "state" => {}
+        "drag" => window.start_dragging().map_err(|e| e.to_string())?,
+        "close" => {
+            window.close().map_err(|e| e.to_string())?;
+            return Ok(false);
+        }
+        "about" => {
+            let handle = app.clone();
+            tauri::async_runtime::spawn_blocking(move || show_about(&handle));
+        }
+        "core-update" => launch_core_update(&app, app.state::<AppState>().inner()),
+        "upstream" => app
+            .opener()
+            .open_url(
                 "https://github.com/deepseek-ai/deepseek-harness",
                 None::<&str>,
-            );
-        }
-        "client-repository" => {
-            let _ = handle
-                .opener()
-                .open_url("https://github.com/isunky/DSH-Desktop", None::<&str>);
-        }
-        "quit" => {
-            state.cancel_and_kill();
-            handle.exit(0);
-        }
-        _ => {}
-    });
-    Ok(())
+            )
+            .map_err(|e| e.to_string())?,
+        "client-repository" => app
+            .opener()
+            .open_url("https://github.com/isunky/DSH-Desktop", None::<&str>)
+            .map_err(|e| e.to_string())?,
+        _ => return Err("未知操作".into()),
+    }
+    window.is_maximized().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1060,14 +1112,14 @@ fn cancel_startup(app: AppHandle, state: State<'_, AppState>) -> Result<(), Stri
 }
 
 #[tauri::command]
-fn navigate_to_core(app: AppHandle, url: String) -> Result<(), String> {
+async fn navigate_to_core(app: AppHandle, url: String) -> Result<(), String> {
     navigate_to_core_window(&app, &url)
 }
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = app.get_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -1078,13 +1130,30 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             start_client,
             cancel_startup,
-            navigate_to_core
+            navigate_to_core,
+            shell_action
         ])
         .setup(|app| {
-            install_menu(app)?;
+            let _ = app.remove_menu();
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(
+                event,
+                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                if let (Some(core), Ok(size), Ok(scale)) = (
+                    window.app_handle().get_webview("core"),
+                    window.inner_size(),
+                    window.scale_factor(),
+                ) {
+                    let size = size.to_logical::<f64>(scale);
+                    let _ = core.set_bounds(tauri::Rect {
+                        position: LogicalPosition::new(0.0, 48.0).into(),
+                        size: LogicalSize::new(size.width, (size.height - 48.0).max(1.0)).into(),
+                    });
+                }
+            }
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 let state = window.app_handle().state::<AppState>();
                 state.cancel_and_kill();

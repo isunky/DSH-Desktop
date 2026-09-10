@@ -1,0 +1,24 @@
+/* App-owned chrome only. The core renders unchanged in a separate webview. */
+body { padding-top: 48px; }
+#shell-header {
+  position: fixed; inset: 0 0 auto; height: 48px; z-index: 10;
+  display: flex; align-items: center; padding: 0 8px 0 20px;
+  background: #fff; color: #59616e; border-bottom: 1px solid #eceef1;
+  user-select: none; -webkit-user-select: none; color-scheme: light;
+}
+#drag-region { flex: 1; height: 100%; display: flex; align-items: center; min-width: 64px; }
+#shell-header .brand { width: 28px; height: 28px; pointer-events: none; }
+#shell-header button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 36px; padding: 0; margin: 0; border: 0;
+  border-radius: 6px; background: transparent; color: inherit; flex-shrink: 0;
+}
+#shell-header button img { width: 16px; height: 16px; opacity: .7; pointer-events: none; }
+#shell-header button:hover, #shell-header button[aria-expanded="true"] { background: #f1f3f5; }
+#shell-header button:focus-visible { outline: 2px solid #4d6bfe; outline-offset: -2px; }
+#shell-header button[data-action="close"]:hover { background: #fee9e9; }
+#shell-extra { display: flex; padding-right: 8px; margin-right: 8px; border-right: 1px solid #eceef1; }
+#shell-extra[hidden], #shell-notice[hidden] { display: none; }
+#shell-notice { position: fixed; z-index: 20; top: 8px; left: 64px; max-width: 45vw; font-size: 12px; color: #b42318; background: white; }
+body.core-ready > main { display: none; }
+@media (prefers-reduced-motion: reduce) { #bar { animation: none !important; transition: none !important; } }

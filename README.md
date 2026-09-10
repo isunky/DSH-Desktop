@@ -75,7 +75,9 @@ pnpm run client:package:dir
 
 ## 核心更新策略
 
-菜单中的“关于与更新”显示客户端和核心版本；“检查 DSH 核心更新”会查询 `client/core-channel.json` 配置的 npm registry，确认后下载新版本、保留旧版本并重启本地核心。核心安装采用版本目录和 `current.json`，不覆盖 `dsh-home/` 用户数据。
+顶部使用 48px 自定义无边框工具栏：Logo、更多、最小化、最大化/还原和关闭；空白区域支持拖动和双击最大化。“更多”在工具栏内展开图标操作，支持键盘聚焦和提示。DSH 核心在独立 WebView 中完整加载，核心页面与样式不做修改。Windows 安装任务和 DSH 后台进程使用隐藏控制台模式，诊断输出由客户端接收。
+
+“更多”内的“关于”显示客户端和核心版本；“检查核心更新”会查询 `client/core-channel.json` 配置的 npm registry，确认后下载新版本、保留旧版本并重启本地核心。核心安装采用版本目录和 `current.json`，不覆盖 `dsh-home/` 用户数据。
 
 开发者信息与客户端发布渠道配置位于 `client/client-info.json`。发布客户端时，使用 `v主版本.次版本.修订号` 格式的正式 Release 标签并上传对应平台安装包；同步修改根目录 `package.json` 和 `src-tauri/tauri.conf.json` 的版本号。
 

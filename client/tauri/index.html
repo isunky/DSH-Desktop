@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DeepSeek Harness</title>
+    <link rel="stylesheet" href="./shell.css">
     <style>
       :root {
         color-scheme: dark;
@@ -54,6 +55,22 @@
     </style>
   </head>
   <body>
+    <header id="shell-header" aria-label="窗口工具栏">
+      <div id="drag-region" title="拖动窗口，双击最大化或还原">
+        <img class="brand" src="./icons/brand.svg" alt="DeepSeek Harness" draggable="false">
+      </div>
+      <nav id="shell-extra" aria-label="更多操作" hidden>
+        <button data-action="about" title="关于" aria-label="关于"><img src="./icons/info.svg" alt=""></button>
+        <button data-action="core-update" title="检查核心更新" aria-label="检查核心更新"><img src="./icons/download.svg" alt=""></button>
+        <button data-action="upstream" title="官方源码" aria-label="官方源码"><img src="./icons/code.svg" alt=""></button>
+        <button data-action="client-repository" title="客户端仓库" aria-label="客户端仓库"><img src="./icons/external-link.svg" alt=""></button>
+      </nav>
+      <button id="shell-more" title="更多" aria-label="更多" aria-expanded="false" aria-controls="shell-extra"><img src="./icons/ellipsis.svg" alt=""></button>
+      <button data-action="minimize" title="最小化" aria-label="最小化"><img src="./icons/minus.svg" alt=""></button>
+      <button data-action="maximize" title="最大化" aria-label="最大化"><img src="./icons/square.svg" alt=""></button>
+      <button data-action="close" title="关闭" aria-label="关闭"><img src="./icons/x.svg" alt=""></button>
+    </header>
+    <div id="shell-notice" role="status" hidden></div>
     <main>
       <p class="eyebrow">Local desktop client</p>
       <h1>DeepSeek Harness</h1>
@@ -65,6 +82,7 @@
         <button id="cancel" type="button">取消启动并退出</button>
       </div>
     </main>
+    <script src="./shell.js"></script>
     <script src="./loading.js"></script>
   </body>
 </html>

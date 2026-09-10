@@ -16,7 +16,7 @@
         "minWidth": 900,
         "minHeight": 640,
         "resizable": true,
-        "decorations": true,
+        "decorations": false,
         "center": true,
         "visible": true
       }
@@ -37,7 +37,8 @@
     ],
     "resources": {
       "../client/core-channel.json": "client/core-channel.json",
-      "../client/runtime/core-manager.mjs": "client/runtime/core-manager.mjs"
+      "../client/runtime/core-manager.mjs": "client/runtime/core-manager.mjs",
+      "../client/runtime/hide-console.cjs": "client/runtime/hide-console.cjs"
     },
     "windows": {
       "nsis": {
