@@ -318,14 +318,17 @@ async function checkCoreUpdate(manual = true) {
     const available = metadata['dist-tags']?.[config.distTag]
     const current = coreProcess?.version ?? (await readCurrentCore()).version
     if (!available || available === current) {
-      if (manual) await dialog.showMessageBox(mainWindow, { type: 'info', title: 'DSH 核心更新', message: `当前已是 ${current}` })
+      if (manual) await dialog.showMessageBox(mainWindow, {
+        type: 'info', title: 'DSH 核心更新', message: `当前已是 ${current}`,
+        detail: '来源：官方 DSH 开源项目与 npm registry。可在“关于与更新”中打开 GitHub 源码仓库核验。',
+      })
       return `当前 DSH 核心已是 ${current}`
     }
     const choice = await dialog.showMessageBox(mainWindow, {
       type: 'info',
       title: '发现 DSH 核心更新',
       message: `${current} → ${available}`,
-      detail: '将从官方 npm registry 下载新核心，客户端窗口和用户数据保持不变。',
+      detail: '来源：官方 DSH 开源项目（github.com/deepseek-ai/deepseek-harness）。将从官方 npm registry 下载新核心，客户端窗口和用户数据保持不变。更新前可在“关于与更新”中打开 GitHub 源码核验。',
       buttons: ['立即更新并重启核心', '稍后'],
       defaultId: 0,
       cancelId: 1,
@@ -455,7 +458,7 @@ else {
       if (release.message) return release.message
       const choice = await dialog.showMessageBox(mainWindow, {
         type: 'info', title: '客户端更新', message: `v${app.getVersion()} → v${release.version}`,
-        detail: '打开独立客户端发布页面，下载适合当前系统的安装包并覆盖安装。DSH 核心和用户数据将保留。',
+        detail: '来源：github.com/isunky/DSH-Desktop。打开 GitHub Release 页面，下载适合当前系统的安装包并覆盖安装。DSH 核心和用户数据将保留。',
         buttons: ['打开下载页面', '稍后'], cancelId: 1,
       })
       if (choice.response !== 0) return '已取消客户端更新。'
@@ -463,13 +466,17 @@ else {
       return `已打开 v${release.version} 下载页面。安装前请退出客户端。`
     }
     const url = action === 'client-update' ? info.clientReleasesUrl
-      : action === 'upstream' ? info.upstreamUrl : action === 'homepage' ? info.homepage : null
+      : action === 'upstream' ? info.upstreamUrl
+        : action === 'client-repository' && info.clientRepository ? `https://github.com/${info.clientRepository}`
+          : action === 'homepage' ? info.homepage : null
     if (!url) return action === 'client-update'
       ? '客户端在线更新渠道尚未配置。当前可使用新版安装包覆盖安装，DSH 核心和用户数据独立保留。'
       : '暂未配置开发者主页。'
     if (new URL(url).protocol !== 'https:') throw new Error('更新与主页地址必须使用 HTTPS')
     await shell.openExternal(url)
-    return action === 'client-update' ? '已打开客户端发布页面。下载新版安装包后覆盖安装即可；不会更新 DSH 核心。' : '已在浏览器打开。'
+    if (action === 'upstream') return '已在浏览器打开官方 DSH GitHub 源码仓库。'
+    if (action === 'client-repository') return '已在浏览器打开独立客户端 GitHub 仓库。'
+    return action === 'client-update' ? '已打开客户端 GitHub 发布页面。下载新版安装包后覆盖安装即可；不会更新 DSH 核心。' : '已在浏览器打开。'
   })
   ipcMain.on('client:window-action', (event, action) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents

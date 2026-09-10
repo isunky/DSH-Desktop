@@ -36,10 +36,12 @@ if (location.protocol !== 'file:') {
       .eyebrow { margin:0 0 8px; color:#7897ca; font-size:10px; letter-spacing:.15em; }
       h1 { margin:0; font-size:22px; font-weight:650; letter-spacing:-.5px; }
       .intro { color:light-dark(#657186,#9ca7b8); line-height:1.7; margin:12px 0 24px; }
-      .card { display:flex; gap:12px; justify-content:space-between; align-items:center; padding:16px;
+      .card { display:flex; gap:16px; justify-content:space-between; align-items:center; padding:16px;
         margin:10px 0; border:1px solid light-dark(#e1e6ef,#ffffff10); border-radius:14px;
         background:light-dark(#fff,#ffffff04); }
+      .card-copy { min-width:0; } .card-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end; }
       .name { font-weight:600; } .version { margin-top:5px; color:light-dark(#748095,#99a6b9); font-size:12px; }
+      .source-link { display:inline-block; margin-top:8px; }
       .action { border:1px solid light-dark(#dbe3f0,#ffffff20); background:light-dark(#f2f6ff,#ffffff08);
         padding:8px 12px; border-radius:9px; white-space:nowrap; font-size:12px; }
       .action:hover { border-color:#779cdb; } .action:disabled { opacity:.5; cursor:wait; }
@@ -48,6 +50,7 @@ if (location.protocol !== 'file:') {
       footer p { margin:6px 0; color:light-dark(#748095,#99a6b9); }
       .links { display:flex; gap:16px; margin-top:12px; }
       .link { padding:0; border:0; background:none; color:light-dark(#4874b9,#9ebdec); font-size:12px; }
+      @media(max-width:560px) { .card { align-items:stretch; flex-direction:column; } .card-actions { justify-content:space-between; } }
       @media(prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; } }
     </style><nav aria-label="客户端与窗口控制">
       <button class="icon reveal" title="展开窗口控制" aria-label="展开窗口控制" aria-expanded="false">
@@ -58,10 +61,12 @@ if (location.protocol !== 'file:') {
       <header><div><p class="eyebrow">DESKTOP COMPANION</p><h1 id="about-title">关于 DeepSeek Harness</h1></div>
         <button class="icon" id="dismiss" aria-label="关闭关于">×</button></header>
       <p class="intro" id="description"></p>
-      <section class="card"><div><div class="name">DSH 核心</div><div class="version" id="core-version">读取版本…</div></div>
-        <button class="action" data-about="core-update">检查核心更新</button></section>
-      <section class="card"><div><div class="name">桌面客户端</div><div class="version" id="client-version">读取版本…</div></div>
-        <button class="action" data-about="client-update">检查客户端更新</button></section>
+      <section class="card"><div class="card-copy"><div class="name">DSH 核心</div><div class="version" id="core-version">读取版本…</div>
+        <button class="link source-link" data-about="upstream">查看官方源码 ↗</button></div>
+        <div class="card-actions"><button class="action" data-about="core-update">检查核心更新</button></div></section>
+      <section class="card"><div class="card-copy"><div class="name">桌面客户端</div><div class="version" id="client-version">读取版本…</div>
+        <button class="link source-link" id="client-repository" data-about="client-repository">查看客户端仓库 ↗</button></div>
+        <div class="card-actions"><button class="action" data-about="client-update">检查客户端更新</button></div></section>
       <p id="status" role="status" aria-live="polite">核心与客户端独立更新。</p>
       <footer><div id="developer"></div><p id="platform"></p><div class="links">
         <button class="link" data-about="upstream">上游开源项目 ↗</button>
@@ -83,20 +88,26 @@ if (location.protocol !== 'file:') {
         const info = await ipcRenderer.invoke('client:about', 'info')
         shadow.querySelector('#description').textContent = info.description
         shadow.querySelector('#core-version').textContent = `v${info.coreVersion} · 官方渠道`
-        shadow.querySelector('#client-version').textContent = `v${info.clientVersion}`
+        shadow.querySelector('#client-version').textContent = `v${info.clientVersion} · GitHub Releases`
         shadow.querySelector('#developer').textContent = `客户端开发者 · ${info.developer}`
         shadow.querySelector('#platform').textContent = `运行平台 · ${info.platform}`
         shadow.querySelector('#homepage').hidden = !info.homepage
-        shadow.querySelector('#status').textContent = info.clientReleasesUrl
-          ? '核心更新后重启本地服务；客户端更新通过独立发布页面获取。'
+        shadow.querySelector('#client-repository').hidden = !info.clientRepository
+        shadow.querySelector('#status').textContent = info.clientReleasesUrl && info.upstreamUrl
+          ? '核心来自官方 npm 渠道；更新前可先打开对应 GitHub 仓库核验来源。'
           : '核心可独立更新。客户端在线发布渠道尚未配置。'
       } catch (error) { shadow.querySelector('#status').textContent = error.message }
     }
     for (const button of shadow.querySelectorAll('[data-about]')) {
       button.addEventListener('click', async () => {
         button.disabled = true
-        shadow.querySelector('#status').textContent = button.dataset.about === 'core-update'
-          ? '正在检查核心版本；如有更新，安装期间请稍候…' : '正在读取发布渠道…'
+        const pending = {
+          'core-update': '正在检查核心版本；如有更新，安装期间请稍候…',
+          'client-update': '正在读取客户端 GitHub Releases…',
+          'upstream': '正在打开官方 DSH GitHub 源码仓库…',
+          'client-repository': '正在打开独立客户端 GitHub 仓库…',
+        }
+        shadow.querySelector('#status').textContent = pending[button.dataset.about] ?? '正在处理…'
         try { shadow.querySelector('#status').textContent = await ipcRenderer.invoke('client:about', button.dataset.about) }
         catch (error) { shadow.querySelector('#status').textContent = error.message }
         finally { button.disabled = false }
