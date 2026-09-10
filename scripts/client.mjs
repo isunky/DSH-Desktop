@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
@@ -9,13 +9,6 @@ const CLIENT = join(ROOT, 'client')
 const BUILD_ROOT = join(ROOT, '.client-build')
 const ARTIFACTS_ROOT = join(ROOT, 'artifacts')
 const UPSTREAM_URL = 'https://github.com/deepseek-ai/deepseek-harness.git'
-const NODE_VERSION = '22.19.0'
-
-const TARGETS = {
-  'win-x64': { platform: 'win32', nodePlatform: 'win', nodeArch: 'x64', archiveExt: 'zip' },
-  'mac-arm64': { platform: 'darwin', nodePlatform: 'darwin', nodeArch: 'arm64', archiveExt: 'tar.gz' },
-  'mac-x64': { platform: 'darwin', nodePlatform: 'darwin', nodeArch: 'x64', archiveExt: 'tar.gz' },
-}
 
 function executable(name) {
   return process.platform === 'win32' && name === 'corepack' ? 'corepack.cmd' : name
@@ -78,122 +71,54 @@ function hostTarget() {
   fail('only Windows x64 and macOS x64/arm64 are supported')
 }
 
-async function runElectron(args, env = process.env) {
-  await ensureElectron()
-  const electron = process.platform === 'win32'
-    ? join(ROOT, 'node_modules', '.bin', 'electron.cmd')
-    : join(ROOT, 'node_modules', '.bin', 'electron')
-  await run(electron, [join(ROOT, 'client', 'electron', 'main.mjs'), ...args], {
-    env: { ...env, DSH_CLIENT_NODE_BINARY: process.execPath },
-  })
-}
-
-async function ensureElectron() {
-  const electronRoot = join(ROOT, 'node_modules', 'electron')
-  try {
-    await readFile(join(electronRoot, 'dist', 'version'))
+function validateTarget(target) {
+  if (target === 'win-x64') {
+    if (process.platform !== 'win32' || process.arch !== 'x64') fail('win-x64 must be built on a Windows x64 host')
     return
-  } catch {
-    console.log('client: Electron binary is not present; downloading the pinned Electron runtime')
   }
-  await run(process.execPath, [join(electronRoot, 'install.js')], { cwd: electronRoot })
-}
-
-async function ensureNodeRuntime(target) {
-  const targetConfig = TARGETS[target]
-  const runtimeRoot = join(BUILD_ROOT, 'node-runtime', target)
-  const nodeBinary = targetConfig.platform === 'win32' ? join(runtimeRoot, 'node.exe') : join(runtimeRoot, 'bin', 'node')
-  try {
-    await readFile(nodeBinary)
-    await ensureNodeNpm(runtimeRoot)
-    return runtimeRoot
-  } catch {
-    // Download and extract only when the target cache is absent.
-  }
-  const archiveName = `node-v${NODE_VERSION}-${targetConfig.nodePlatform}-${targetConfig.nodeArch}.${targetConfig.archiveExt}`
-  const archivePath = join(BUILD_ROOT, 'downloads', archiveName)
-  await mkdir(join(BUILD_ROOT, 'downloads'), { recursive: true })
-  try {
-    await readFile(archivePath)
-  } catch {
-    const url = `https://nodejs.org/dist/v${NODE_VERSION}/${archiveName}`
-    console.log(`client: downloading Node.js ${NODE_VERSION} for ${target} from ${url}`)
-    const response = await fetch(url)
-    if (!response.ok) fail(`Node.js runtime download failed with HTTP ${response.status}`)
-    await writeFile(archivePath, Buffer.from(await response.arrayBuffer()))
-  }
-  const extractRoot = join(BUILD_ROOT, 'node-runtime', `.extract-${target}`)
-  await rm(extractRoot, { recursive: true, force: true })
-  await mkdir(extractRoot, { recursive: true })
-  const tarArgs = targetConfig.archiveExt === 'zip'
-    ? ['-xf', archivePath, '-C', extractRoot]
-    : ['-xzf', archivePath, '-C', extractRoot]
-  await run('tar', tarArgs)
-  const extractedRoot = join(extractRoot, `node-v${NODE_VERSION}-${targetConfig.nodePlatform}-${targetConfig.nodeArch}`)
-  await rm(runtimeRoot, { recursive: true, force: true })
-  await mkdir(dirname(runtimeRoot), { recursive: true })
-  await cp(extractedRoot, runtimeRoot, { recursive: true })
-  await rm(extractRoot, { recursive: true, force: true })
-  await ensureNodeNpm(runtimeRoot)
-  return runtimeRoot
-}
-
-async function ensureNodeNpm(runtimeRoot) {
-  const npmTarget = join(runtimeRoot, 'npm-dist')
-  try {
-    await readFile(join(npmTarget, 'bin', 'npm-cli.js'))
+  if (target === 'mac-arm64') {
+    if (process.platform !== 'darwin' || process.arch !== 'arm64') fail('mac-arm64 must be built on an Apple Silicon macOS host')
     return
-  } catch {
-    // Windows Node archives use node_modules/npm; macOS archives use
-    // lib/node_modules/npm. Normalize both layouts for the packaged app.
-    const candidates = [
-      join(runtimeRoot, 'node_modules', 'npm'),
-      join(runtimeRoot, 'lib', 'node_modules', 'npm'),
-    ]
-    let npmSource
-    for (const candidate of candidates) {
-      try {
-        await readFile(join(candidate, 'package.json'))
-        npmSource = candidate
-        break
-      } catch {
-        // Try the next platform-specific Node archive layout.
-      }
-    }
-    if (npmSource === undefined) fail(`Node.js ${NODE_VERSION} archive does not contain npm`)
-    await cp(npmSource, npmTarget, { recursive: true })
   }
+  if (target === 'mac-x64') {
+    if (process.platform !== 'darwin' || process.arch !== 'x64') fail('mac-x64 must be built on an Intel macOS host')
+    return
+  }
+  fail(`unsupported target '${target}'`)
 }
 
 async function packageClient(target, directory = false) {
-  const targetConfig = TARGETS[target]
-  if (targetConfig === undefined) fail(`unsupported target '${target}'`)
-  if (process.platform !== targetConfig.platform) {
-    fail(`${target} must be built on a ${targetConfig.platform === 'win32' ? 'Windows x64' : 'macOS'} host`)
-  }
-  if (target === 'win-x64' && process.arch !== 'x64') fail('win-x64 requires a Windows x64 host')
-  if (target === 'mac-arm64' && process.arch !== 'arm64') fail('mac-arm64 requires an Apple Silicon host')
-
+  validateTarget(target)
   await mkdir(BUILD_ROOT, { recursive: true })
-  await ensureElectron()
-  const nodeRuntime = await ensureNodeRuntime(target)
-  const outputDirectory = join(ARTIFACTS_ROOT, target)
+  const outputDirectory = join(ARTIFACTS_ROOT, directory ? 'dir' : target)
   await rm(outputDirectory, { recursive: true, force: true })
   await mkdir(outputDirectory, { recursive: true })
-  const env = {
-    ...process.env,
-    DSH_CLIENT_TARGET: target,
-    DSH_CLIENT_OUTPUT_DIR: outputDirectory,
-    DSH_CLIENT_NODE_RUNTIME: nodeRuntime,
+
+  const builderArgs = ['tauri', 'build']
+  if (directory) builderArgs.push('--no-bundle')
+  else builderArgs.push('--bundles', target === 'win-x64' ? 'nsis' : 'dmg')
+  await run('cargo', builderArgs)
+
+  const releaseRoot = join(ROOT, 'src-tauri', 'target', 'release')
+  const packageJson = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
+  const version = packageJson.version
+  const executableName = process.platform === 'win32' ? 'deepseek-harness.exe' : 'deepseek-harness'
+  if (directory) {
+    const binary = join(releaseRoot, executableName)
+    await cp(binary, join(outputDirectory, executableName))
+    const resources = join(releaseRoot, 'client')
+    await cp(resources, join(outputDirectory, 'client'), { recursive: true })
+  } else {
+    const bundleDirectory = join(releaseRoot, 'bundle', target === 'win-x64' ? 'nsis' : 'dmg')
+    const extension = target === 'win-x64' ? '.exe' : '.dmg'
+    const candidates = (await readdir(bundleDirectory)).filter(name => name.endsWith(extension))
+    if (candidates.length === 0) fail(`Tauri did not produce a ${extension} installer in ${bundleDirectory}`)
+    const source = join(bundleDirectory, candidates[0])
+    const name = target === 'win-x64'
+      ? `DeepSeek-Harness-${version}-win-x64.exe`
+      : `DeepSeek-Harness-${version}-${target}.dmg`
+    await cp(source, join(outputDirectory, name))
   }
-  const builderArgs = [
-    'exec', 'electron-builder',
-    '--config', join(CLIENT, 'electron-builder.config.mjs'),
-    '--publish', 'never',
-  ]
-  if (directory) builderArgs.push('--dir')
-  else builderArgs.push(target.startsWith('mac-') ? '--mac' : '--win', target === 'mac-arm64' ? '--arm64' : '--x64')
-  await run(executable('corepack'), ['pnpm', ...builderArgs], { env })
   console.log(`client: artifacts written to ${outputDirectory}`)
 }
 
@@ -216,9 +141,13 @@ async function check() {
   const channel = await readChannel()
   if (channel.packageName !== '@deepseek-ai/dsh') fail('client/core-channel.json must point to @deepseek-ai/dsh')
   if (!channel.registry.startsWith('https://')) fail('core registry must use HTTPS')
+  for (const path of ['src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'client/tauri/index.html']) {
+    try { await readFile(join(ROOT, path)) } catch { fail(`missing Tauri client file: ${path}`) }
+  }
   console.log(`client: upstream ${commit.slice(0, 12)} is clean`)
   console.log(`client: upstream dsh ${upstreamManifest.version}; official core channel ${channel.packageName}@${channel.distTag}`)
   console.log(`client: source ${UPSTREAM_URL}`)
+  console.log('client: Tauri shell uses an on-demand Node.js runtime and on-demand DSH core')
 }
 
 async function coreCommand(command) {
@@ -237,7 +166,7 @@ async function main() {
   const [command, value] = process.argv.slice(2)
   switch (command) {
     case 'dev':
-      await runElectron([])
+      await run('cargo', ['tauri', 'dev'])
       return
     case 'package':
       await packageClient(value === 'dir' ? hostTarget() : value, value === 'dir')

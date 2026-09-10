@@ -2,13 +2,12 @@
   "name": "deepseek-harness-client",
   "version": "0.1.0",
   "private": true,
-  "description": "A separated cross-platform client build for DeepSeek Harness.",
+  "description": "A lightweight Tauri client build for DeepSeek Harness.",
   "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": ">=22.19.0"
   },
   "type": "module",
-  "main": "client/electron/main.mjs",
   "scripts": {
     "client:dev": "node scripts/client.mjs dev",
     "client:package:win": "node scripts/client.mjs package win-x64",
@@ -22,8 +21,6 @@
     "client:clean": "node scripts/client.mjs clean"
   },
   "devDependencies": {
-    "electron": "^44.0.0",
-    "electron-builder": "^26.15.3",
     "pnpm": "11.7.0"
   }
 }

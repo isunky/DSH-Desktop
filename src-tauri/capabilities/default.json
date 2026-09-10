@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for the DeepSeek Harness desktop client.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -1,6 +1,12 @@
 node_modules/
 .client-build/
 artifacts/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/Square*Logo.png
+src-tauri/icons/StoreLogo.png
 .cache/
 .playwright-cli/
 output/

@@ -1,23 +1,41 @@
 # DeepSeek Harness 独立跨平台客户端
 
-本仓库将客户端壳与 DSH 核心分离：`upstream/` 只保存上游源码的 Git submodule，`client/` 保存独立 Electron 壳和核心通道配置。客户端安装包不内置完整 DSH 核心；首次启动从官方 npm registry 获取 `@deepseek-ai/dsh`，之后核心版本可以独立更新，用户数据和客户端窗口不需要迁移。
+本仓库将桌面壳与 DSH 核心分离：`upstream/` 只保存上游源码的 Git submodule，`client/` 保存客户端启动页、核心通道配置和运行时管理脚本，`src-tauri/` 保存 Tauri/Rust 壳。客户端安装包不内置 Node.js 或完整 DSH 核心，首次启动按需下载并缓存。
 
 上游源码：<https://github.com/deepseek-ai/deepseek-harness>
 
 ## 运行方式
 
-客户端使用 Electron 打开本机 DSH Web UI，并把核心版本缓存到用户数据目录：
+Tauri 壳使用系统 WebView，启动时按以下顺序准备本地环境：
+
+1. 从 `nodejs.org` 下载固定版本 Node.js `22.19.0`，用官方 `SHASUMS256.txt` 校验 SHA-256，并解压到用户数据目录；
+2. 使用该 Node.js 运行 `client/runtime/core-manager.mjs`，从 npm registry 安装 `@deepseek-ai/dsh`；
+3. 启动本地 DSH Web 服务，并在 Tauri 窗口中打开。
+
+默认用户数据目录：
 
 ```text
-Windows: %LOCALAPPDATA%/DeepSeek Harness/core/versions/<version>/
-macOS:   ~/Library/Application Support/DeepSeek Harness/core/versions/<version>/
+Windows: %LOCALAPPDATA%/DeepSeek Harness/
+macOS:   ~/Library/Application Support/DeepSeek Harness/
 ```
 
-DSH 用户数据单独放在同一应用数据目录下的 `dsh-home/`。已缓存核心时可以断网启动；首次安装或核心升级需要访问配置的官方 registry。
+其中 Node.js 位于 `runtime/node/22.19.0/`，核心位于 `core/versions/<version>/`，DSH 用户数据位于 `dsh-home/`。已缓存 Node.js 和核心时可以断网启动；首次安装需要访问 Node.js 下载站点和配置的官方 registry。
 
 ## 开发启动
 
-环境要求：Node.js `22.19+` 或 `24+`、Corepack，以及 Windows x64 或 macOS 构建机。
+环境要求：
+
+- Node.js `22.19+` 或 `24+`、Corepack/pnpm；
+- Rust stable、Cargo，以及 Windows MSVC 工具链或 macOS Xcode Command Line Tools；
+- Windows x64 或 macOS x64/arm64 构建机。
+
+首次准备 Rust CLI：
+
+```sh
+cargo install tauri-cli --version 2.11.4 --locked
+```
+
+然后执行：
 
 ```sh
 git submodule update --init --recursive
@@ -27,14 +45,14 @@ pnpm run client:check
 pnpm run client:dev
 ```
 
-首次启动会安装当前 `client/core-channel.json` 中的核心版本。也可以先检查或安装核心：
+首次启动会安装当前 `client/core-channel.json` 中的核心版本。也可以直接使用开发机 Node.js 预先检查或安装核心：
 
 ```sh
 pnpm run client:core:check
 pnpm run client:core:install
 ```
 
-启动页会显示当前阶段、已用时和等待说明。首次安装或启动时间较长时，可以点击“取消启动并退出”，也可以按 `Esc` 或直接关闭窗口；客户端会同时终止核心安装和本地 DSH 服务，不会留下继续运行的后台任务。
+启动页会显示当前阶段、已用时和等待说明。首次安装或启动时间较长时，可以点击“取消启动并退出”，也可以按 `Esc` 或直接关闭窗口；客户端会同时终止核心安装和本地 DSH 服务。
 
 ## 本地打包
 
@@ -47,19 +65,19 @@ pnpm run client:package:mac:arm64
 pnpm run client:package:mac:x64
 ```
 
-只生成当前宿主机的应用目录：
+只生成当前宿主机的 Tauri 应用目录：
 
 ```sh
 pnpm run client:package:dir
 ```
 
-产物位于 `artifacts/<target>/`。本地构建关闭签名、公证和自动更新托管；Windows 生成 NSIS 安装包，macOS 生成 DMG/ZIP。正式发布仍需在对应平台配置签名、公证和更新服务。
+产物位于 `artifacts/<target>/`。Windows 生成 NSIS 安装包，macOS 生成 DMG；安装包只包含 Tauri 壳、前端启动页和核心管理器，不包含 Node.js 或 DSH 核心。Windows 安装器在目标机缺少 WebView2 时会尝试联网下载引导程序；需要离线部署时应预先安装 WebView2 或调整 `src-tauri/tauri.conf.json`。正式发布仍需在对应平台配置签名、公证和更新服务。
 
 ## 核心更新策略
 
-主界面右上角控件默认收起，鼠标悬停、键盘聚焦或点击后展开；“关于与更新”提供独立的核心和客户端更新入口，并显示 Sunky 开发者信息。客户端检查 `isunky/DSH-Desktop` 的最新正式 GitHub Release，发现新版本后打开下载页面，由用户覆盖安装；未发布版本时会明确提示。此模式不静默下载或自动替换正在运行的程序。
+菜单中的“关于与更新”显示客户端和核心版本；“检查 DSH 核心更新”会查询 `client/core-channel.json` 配置的 npm registry，确认后下载新版本、保留旧版本并重启本地核心。核心安装采用版本目录和 `current.json`，不覆盖 `dsh-home/` 用户数据。
 
-开发者信息与客户端发布渠道配置位于 `client/electron/client-info.json`。发布客户端时，使用 `v主版本.次版本.修订号` 格式的正式 Release 标签并上传对应平台安装包；同步修改根目录 `package.json` 的版本号。
+开发者信息与客户端发布渠道配置位于 `client/client-info.json`。发布客户端时，使用 `v主版本.次版本.修订号` 格式的正式 Release 标签并上传对应平台安装包；同步修改根目录 `package.json` 和 `src-tauri/tauri.conf.json` 的版本号。
 
 `client/core-channel.json` 是客户端核心渠道的唯一配置点，默认使用：
 
@@ -71,8 +89,6 @@ pnpm run client:package:dir
   "autoUpdate": false
 }
 ```
-
-客户端默认不静默替换核心；菜单中的“检查 DSH 核心更新”会查询官方 registry，确认后下载新版本、保留旧版本并重启本地核心。核心安装采用版本目录和 `current.json`，后续可扩展为回滚、灰度通道或企业私有 registry，而不改变客户端壳。
 
 ## 与上游同步
 
