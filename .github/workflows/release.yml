@@ -86,7 +86,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-arm64
-          path: artifacts/mac-arm64/*
+          path: |
+            artifacts/mac-arm64/*.dmg
+            artifacts/mac-arm64/*.zip
           if-no-files-found: error
 
   mac-x64:
@@ -120,7 +122,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-x64
-          path: artifacts/mac-x64/*
+          path: |
+            artifacts/mac-x64/*.dmg
+            artifacts/mac-x64/*.zip
           if-no-files-found: error
 
   publish:
