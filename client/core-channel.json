@@ -1,0 +1,7 @@
+{
+  "packageName": "@deepseek-ai/dsh",
+  "registry": "https://registry.npmjs.org",
+  "distTag": "latest",
+  "autoUpdate": false,
+  "defaultPort": 3080
+}

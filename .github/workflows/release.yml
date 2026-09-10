@@ -1,0 +1,145 @@
+name: Release Desktop Client
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout client and upstream
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Windows installer
+        run: pnpm run client:package:win
+
+      - name: Create Windows portable archive
+        shell: pwsh
+        run: Compress-Archive -Path artifacts/win-x64/win-unpacked/* -DestinationPath artifacts/win-x64/DeepSeek-Harness-${{ github.ref_name }}-win-x64-portable.zip
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            artifacts/win-x64/DeepSeek-Harness-*.exe
+            artifacts/win-x64/DeepSeek-Harness-*.blockmap
+            artifacts/win-x64/*portable.zip
+          if-no-files-found: error
+
+  mac-arm64:
+    name: macOS arm64
+    runs-on: macos-15
+    steps:
+      - name: Checkout client and upstream
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build macOS arm64 packages
+        run: pnpm run client:package:mac:arm64
+
+      - name: Upload macOS arm64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: artifacts/mac-arm64/*
+          if-no-files-found: error
+
+  mac-x64:
+    name: macOS x64
+    runs-on: macos-15-intel
+    steps:
+      - name: Checkout client and upstream
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build macOS x64 packages
+        run: pnpm run client:package:mac:x64
+
+      - name: Upload macOS x64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x64
+          path: artifacts/mac-x64/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [windows, mac-arm64, mac-x64]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "DeepSeek Harness ${GITHUB_REF_NAME}" --generate-notes
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: find release-assets -type f -print0 | xargs -0 -n1 gh release upload "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --clobber

@@ -1,0 +1,8 @@
+{
+  "developer": "Sunky",
+  "description": "为 DeepSeek Harness 提供独立桌面窗口与本地核心管理。",
+  "homepage": "https://github.com/isunky/DSH-Desktop",
+  "clientReleasesUrl": "https://github.com/isunky/DSH-Desktop/releases",
+  "clientRepository": "isunky/DSH-Desktop",
+  "upstreamUrl": "https://github.com/isunky/deepseek-harness"
+}

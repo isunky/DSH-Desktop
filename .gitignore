@@ -1,0 +1,20 @@
+node_modules/
+.client-build/
+artifacts/
+.cache/
+.playwright-cli/
+output/
+.DS_Store
+Thumbs.db
+
+# Local credentials and release configuration.
+.env
+.env.*
+!.env.example
+client/*.local.*
+
+# The upstream checkout is a submodule. Its generated files must never be
+# treated as client-repository changes.
+upstream/node_modules/
+upstream/apps/desktop/.desktop-build/
+upstream/.pnpm-store/
