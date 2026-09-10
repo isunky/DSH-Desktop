@@ -27,11 +27,6 @@ export default {
       ? []
       : [
           { from: process.env.DSH_CLIENT_NODE_RUNTIME, to: 'runtime/node', filter: ['**/*'] },
-          {
-            from: join(process.env.DSH_CLIENT_NODE_RUNTIME, 'node_modules', 'npm'),
-            to: 'runtime/node/node_modules/npm',
-            filter: ['**/*'],
-          },
         ]),
   ],
   extraMetadata: { main: 'client/electron/main.mjs' },

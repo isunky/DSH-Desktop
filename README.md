@@ -2,7 +2,7 @@
 
 本仓库将客户端壳与 DSH 核心分离：`upstream/` 只保存上游源码的 Git submodule，`client/` 保存独立 Electron 壳和核心通道配置。客户端安装包不内置完整 DSH 核心；首次启动从官方 npm registry 获取 `@deepseek-ai/dsh`，之后核心版本可以独立更新，用户数据和客户端窗口不需要迁移。
 
-上游源码：<https://github.com/isunky/deepseek-harness>
+上游源码：<https://github.com/deepseek-ai/deepseek-harness>
 
 ## 运行方式
 

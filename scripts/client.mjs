@@ -8,7 +8,7 @@ const UPSTREAM = join(ROOT, 'upstream')
 const CLIENT = join(ROOT, 'client')
 const BUILD_ROOT = join(ROOT, '.client-build')
 const ARTIFACTS_ROOT = join(ROOT, 'artifacts')
-const UPSTREAM_URL = 'https://github.com/isunky/deepseek-harness.git'
+const UPSTREAM_URL = 'https://github.com/deepseek-ai/deepseek-harness.git'
 const NODE_VERSION = '22.19.0'
 
 const TARGETS = {
@@ -139,12 +139,28 @@ async function ensureNodeRuntime(target) {
 }
 
 async function ensureNodeNpm(runtimeRoot) {
-  const npmSource = join(runtimeRoot, 'node_modules', 'npm')
   const npmTarget = join(runtimeRoot, 'npm-dist')
   try {
     await readFile(join(npmTarget, 'bin', 'npm-cli.js'))
     return
   } catch {
+    // Windows Node archives use node_modules/npm; macOS archives use
+    // lib/node_modules/npm. Normalize both layouts for the packaged app.
+    const candidates = [
+      join(runtimeRoot, 'node_modules', 'npm'),
+      join(runtimeRoot, 'lib', 'node_modules', 'npm'),
+    ]
+    let npmSource
+    for (const candidate of candidates) {
+      try {
+        await readFile(join(candidate, 'package.json'))
+        npmSource = candidate
+        break
+      } catch {
+        // Try the next platform-specific Node archive layout.
+      }
+    }
+    if (npmSource === undefined) fail(`Node.js ${NODE_VERSION} archive does not contain npm`)
     await cp(npmSource, npmTarget, { recursive: true })
   }
 }

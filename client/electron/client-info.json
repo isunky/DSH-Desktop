@@ -4,5 +4,5 @@
   "homepage": "https://github.com/isunky/DSH-Desktop",
   "clientReleasesUrl": "https://github.com/isunky/DSH-Desktop/releases",
   "clientRepository": "isunky/DSH-Desktop",
-  "upstreamUrl": "https://github.com/isunky/deepseek-harness"
+  "upstreamUrl": "https://github.com/deepseek-ai/deepseek-harness"
 }
