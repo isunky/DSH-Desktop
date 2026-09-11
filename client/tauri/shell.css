@@ -17,8 +17,28 @@ body { padding-top: 48px; }
 #shell-header button:hover, #shell-header button[aria-expanded="true"] { background: #f1f3f5; }
 #shell-header button:focus-visible { outline: 2px solid #4d6bfe; outline-offset: -2px; }
 #shell-header button[data-action="close"]:hover { background: #fee9e9; }
-#shell-extra { display: flex; padding-right: 8px; margin-right: 8px; border-right: 1px solid #eceef1; }
-#shell-extra[hidden], #shell-notice[hidden] { display: none; }
+#shell-notice[hidden] { display: none; }
 #shell-notice { position: fixed; z-index: 20; top: 8px; left: 64px; max-width: 45vw; font-size: 12px; color: #b42318; background: white; }
 body.core-ready > main { display: none; }
+#settings-dialog { width: min(560px, calc(100vw - 40px)); max-height: calc(100vh - 110px); padding: 28px; border: 1px solid #e6e8ed; border-radius: 20px; color: #252936; background: #fff; color-scheme: light; box-shadow: 0 24px 90px #0004; }
+#settings-dialog::backdrop { background: #0d152866; backdrop-filter: blur(6px); }
+#settings-dialog[open] { animation: settings-in .18s ease-out; }
+.settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+#settings-dialog h2 { margin: 0; font-size: 23px; }
+#settings-dialog h3 { margin: 0 0 8px; font-size: 15px; }
+#settings-dialog p { color: #687182; font-size: 13px; line-height: 1.65; margin: 8px 0; }
+#settings-dialog button { color: #414b64; border: 1px solid #dfe3ec; border-radius: 9px; background: #fff; }
+#settings-dialog button:hover { background: #f0f3ff; border-color: #b8c3fd; }
+#settings-dialog button:focus-visible, #settings-dialog summary:focus-visible { outline: 2px solid #4d6bfe; outline-offset: 3px; }
+#settings-close { font-size: 24px; line-height: 1; padding: 6px 10px; }
+.settings-card { background: #f8f9fc; border: 1px solid #edf0f5; border-radius: 13px; padding: 18px; margin-bottom: 12px; }
+.settings-card h3 span { color: #6674a3; font-size: 12px; font-weight: 500; margin-left: 8px; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+#settings-dialog .text-action { border-color: transparent; background: transparent; }
+.settings-about { padding: 14px 2px 0; }
+.settings-about summary { color: #687182; cursor: pointer; font-size: 12px; }
+#settings-runtime { white-space: pre-wrap; overflow-wrap: anywhere; }
+#settings-status { min-height: 20px; overflow-wrap: anywhere; }
+@keyframes settings-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #settings-dialog[open] { animation: none; } }
 @media (prefers-reduced-motion: reduce) { #bar { animation: none !important; transition: none !important; } }

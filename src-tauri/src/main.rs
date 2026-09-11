@@ -37,6 +37,7 @@ struct AppStateInner {
     cancelled: AtomicBool,
     startup_started: AtomicBool,
     update_in_progress: AtomicBool,
+    settings_open: AtomicBool,
     processes: Mutex<ProcessTable>,
 }
 
@@ -112,6 +113,7 @@ impl AppState {
                 cancelled: AtomicBool::new(false),
                 startup_started: AtomicBool::new(false),
                 update_in_progress: AtomicBool::new(false),
+                settings_open: AtomicBool::new(false),
                 processes: Mutex::new(ProcessTable {
                     manager: None,
                     core: None,
@@ -1478,6 +1480,16 @@ fn navigate_to_core_window(app: &AppHandle, url: &str) -> Result<(), String> {
             LogicalSize::new(size.width, (size.height - 48.0).max(1.0)),
         )
         .map_err(|error| format!("打开 DSH Web UI 失败：{error}"))?;
+    if app
+        .state::<AppState>()
+        .inner
+        .settings_open
+        .load(Ordering::SeqCst)
+    {
+        if let Some(core) = app.get_webview("core") {
+            let _ = core.hide();
+        }
+    }
     Ok(())
 }
 
@@ -1621,22 +1633,11 @@ fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<Strin
 
 fn launch_core_update(app: &AppHandle, state: &AppState) {
     if app.get_webview("core").is_none() {
-        let handle = app.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            handle
-                .dialog()
-                .message("请等待客户端启动完成后再检查更新。")
-                .title("DSH 核心更新")
-                .blocking_show();
-        });
+        let _ = app.emit("core-update-result", "请等待客户端启动完成后再检查更新。");
         return;
     }
     if state.inner.update_in_progress.swap(true, Ordering::SeqCst) {
-        app.dialog()
-            .message("核心更新任务正在进行中。")
-            .title("DSH 核心更新")
-            .kind(MessageDialogKind::Info)
-            .blocking_show();
+        let _ = app.emit("core-update-result", "核心更新任务正在进行中。");
         return;
     }
     let app = app.clone();
@@ -1647,19 +1648,31 @@ fn launch_core_update(app: &AppHandle, state: &AppState) {
             .inner
             .update_in_progress
             .store(false, Ordering::SeqCst);
-        let (message, kind) = match result {
-            Ok(message) => (message, MessageDialogKind::Info),
-            Err(error) => (error, MessageDialogKind::Error),
+        let message = match result {
+            Ok(message) => message,
+            Err(error) => error,
         };
-        app.dialog()
-            .message(message)
-            .title("DSH 核心更新")
-            .kind(kind)
-            .blocking_show();
+        let _ = app.emit("core-update-result", message);
     });
 }
 
 // Only the bundled shell can operate the window; the core webview has no IPC capability.
+#[tauri::command]
+async fn settings_info(app: AppHandle, webview: tauri::Webview) -> Result<Value, String> {
+    if webview.label() != "main" {
+        return Err("无权限".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        serde_json::json!({
+            "client": app.package_info().version.to_string(),
+            "core": current_core_version(&app),
+            "runtime": current_runtime_source(&app)
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 async fn shell_action(
     app: AppHandle,
@@ -1671,6 +1684,31 @@ async fn shell_action(
     }
     let window = app.get_window("main").ok_or("主窗口不存在")?;
     match action.as_str() {
+        "settings-open" => {
+            app.state::<AppState>()
+                .inner
+                .settings_open
+                .store(true, Ordering::SeqCst);
+            if let Some(core) = app.get_webview("core") {
+                core.hide().map_err(|e| e.to_string())?;
+            }
+        }
+        "settings-close" => {
+            app.state::<AppState>()
+                .inner
+                .settings_open
+                .store(false, Ordering::SeqCst);
+            if let Some(core) = app.get_webview("core") {
+                core.show().map_err(|e| e.to_string())?;
+            }
+        }
+        "client-releases" => app
+            .opener()
+            .open_url(
+                "https://github.com/isunky/DSH-Desktop/releases",
+                None::<&str>,
+            )
+            .map_err(|e| e.to_string())?,
         "minimize" => window.minimize().map_err(|e| e.to_string())?,
         "maximize" => {
             if window.is_maximized().map_err(|e| e.to_string())? {
@@ -1761,7 +1799,8 @@ fn main() {
             cancel_startup,
             reset_startup,
             navigate_to_core,
-            shell_action
+            shell_action,
+            settings_info
         ])
         .setup(|app| {
             let _ = app.remove_menu();
