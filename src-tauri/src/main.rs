@@ -2,6 +2,7 @@
 
 use flate2::read::GzDecoder;
 use reqwest::blocking::Client;
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -23,6 +24,8 @@ use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
 const NODE_VERSION: &str = "22.19.0";
+const EXTERNAL_BINDING_FILE: &str = "runtime-binding.json";
+const OFFICIAL_DSH_REPOSITORY: &str = "github.com/deepseek-ai/deepseek-harness";
 const CLIENT_INFO_JSON: &str = include_str!("../../client/client-info.json");
 
 #[derive(Clone)]
@@ -66,6 +69,8 @@ struct CoreChannel {
     package_name: String,
     registry: String,
     dist_tag: String,
+    #[serde(default)]
+    minimum_core_version: Option<String>,
 }
 
 struct NodeTarget {
@@ -80,6 +85,24 @@ struct NodeTarget {
 struct NodeRuntime {
     executable: PathBuf,
     npm_cli: PathBuf,
+    version: String,
+}
+
+#[derive(Clone)]
+struct CoreRuntime {
+    directory: PathBuf,
+    entry: PathBuf,
+    version: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExternalBinding {
+    node_executable: PathBuf,
+    npm_cli: PathBuf,
+    node_version: String,
+    core_root: PathBuf,
+    core_version: String,
 }
 
 impl AppState {
@@ -397,7 +420,357 @@ fn copy_directory(source: &Path, destination: &Path) -> io::Result<()> {
     Ok(())
 }
 
+fn quiet_command(executable: &Path) -> Command {
+    let mut command = Command::new(executable);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000);
+    command
+}
+
+fn command_output(mut command: Command) -> Option<String> {
+    let output = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn parse_node_version(text: &str) -> Option<Version> {
+    let token = text.split_whitespace().next()?.trim_start_matches('v');
+    Version::parse(token).ok()
+}
+
+fn supported_node_version(version: &Version) -> bool {
+    let lower_22 = Version::parse("22.19.0").expect("valid Node lower bound");
+    let upper_22 = Version::parse("23.0.0").expect("valid Node upper bound");
+    let lower_24 = Version::parse("24.0.0").expect("valid Node lower bound");
+    (version >= &lower_22 && version < &upper_22) || version >= &lower_24
+}
+
+fn expected_node_architecture() -> &'static str {
+    #[cfg(target_arch = "x86_64")]
+    return "x64";
+    #[cfg(target_arch = "aarch64")]
+    return "arm64";
+    #[allow(unreachable_code)]
+    "unknown"
+}
+
+fn add_node_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    if path.is_file() && !candidates.iter().any(|candidate| candidate == &path) {
+        candidates.push(path);
+    }
+}
+
+fn add_node_directory_candidates(candidates: &mut Vec<PathBuf>, directory: &Path) {
+    add_node_candidate(
+        candidates,
+        directory.join(if cfg!(target_os = "windows") {
+            "node.exe"
+        } else {
+            "node"
+        }),
+    );
+}
+
+fn system_node_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        for directory in std::env::split_paths(&path) {
+            add_node_directory_candidates(&mut candidates, &directory);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(program_files) = std::env::var_os("ProgramFiles") {
+            add_node_directory_candidates(
+                &mut candidates,
+                &PathBuf::from(program_files).join("nodejs"),
+            );
+        }
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            let local_app_data = PathBuf::from(local_app_data);
+            add_node_directory_candidates(
+                &mut candidates,
+                &local_app_data.join("Programs").join("nodejs"),
+            );
+            add_node_directory_candidates(
+                &mut candidates,
+                &local_app_data.join("Volta").join("bin"),
+            );
+        }
+        if let Some(app_data) = std::env::var_os("APPDATA") {
+            let app_data = PathBuf::from(app_data);
+            add_node_directory_candidates(&mut candidates, &app_data.join("nvm").join("current"));
+            if let Ok(entries) = fs::read_dir(app_data.join("nvm")) {
+                for entry in entries.flatten() {
+                    if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                        add_node_directory_candidates(&mut candidates, &entry.path());
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        for directory in [
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin"),
+            PathBuf::from("/usr/bin"),
+        ] {
+            add_node_directory_candidates(&mut candidates, &directory);
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            add_node_directory_candidates(&mut candidates, &home.join(".volta").join("bin"));
+            let nvm_root = home.join(".nvm").join("versions").join("node");
+            if let Ok(entries) = fs::read_dir(nvm_root) {
+                for entry in entries.flatten() {
+                    if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                        add_node_directory_candidates(&mut candidates, &entry.path().join("bin"));
+                    }
+                }
+            }
+        }
+    }
+
+    candidates
+}
+
+fn npm_cli_for_node(node: &Path) -> Option<PathBuf> {
+    let parent = node.parent()?;
+    let candidates = [
+        parent
+            .join("node_modules")
+            .join("npm")
+            .join("bin")
+            .join("npm-cli.js"),
+        parent
+            .parent()?
+            .join("lib")
+            .join("node_modules")
+            .join("npm")
+            .join("bin")
+            .join("npm-cli.js"),
+    ];
+    candidates.into_iter().find(|candidate| candidate.is_file())
+}
+
+fn normalize_launch_path(path: PathBuf) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let value = path.to_string_lossy();
+        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = value.strip_prefix(r"\\?\") {
+            if rest.as_bytes().get(1) == Some(&b':') {
+                return PathBuf::from(rest);
+            }
+        }
+    }
+    path
+}
+
+fn inspect_system_node(path: &Path) -> Option<NodeRuntime> {
+    let executable = normalize_launch_path(fs::canonicalize(path).ok()?);
+    let version_output = command_output({
+        let mut command = quiet_command(&executable);
+        command.arg("--version");
+        command
+    })?;
+    let version = parse_node_version(&version_output)?;
+    if !supported_node_version(&version) {
+        return None;
+    }
+    let architecture = command_output({
+        let mut command = quiet_command(&executable);
+        command.args(["-p", "process.arch"]);
+        command
+    })?;
+    if architecture.trim() != expected_node_architecture() {
+        return None;
+    }
+    let npm_cli = npm_cli_for_node(&executable)?;
+    Some(NodeRuntime {
+        executable,
+        npm_cli,
+        version: version.to_string(),
+    })
+}
+
+fn discover_system_node() -> Option<NodeRuntime> {
+    system_node_candidates()
+        .into_iter()
+        .find_map(|candidate| inspect_system_node(&candidate))
+}
+
+fn npm_global_root(node: &NodeRuntime) -> Option<PathBuf> {
+    let output = {
+        let mut command = quiet_command(&node.executable);
+        command.arg(&node.npm_cli).args(["root", "-g"]);
+        command_output(command)
+    }?;
+    let root = PathBuf::from(output.lines().next()?.trim());
+    if root.is_dir() {
+        Some(root)
+    } else {
+        None
+    }
+}
+
+fn compatible_core_version(version: &str, channel: &CoreChannel) -> bool {
+    let Some(minimum) = channel.minimum_core_version.as_deref() else {
+        return true;
+    };
+    let Ok(version) = Version::parse(version) else {
+        return false;
+    };
+    let Ok(requirement) = VersionReq::parse(&format!(">={minimum}")) else {
+        return false;
+    };
+    requirement.matches(&version)
+}
+
+fn official_dsh_repository(manifest: &Value) -> bool {
+    let repository = manifest.get("repository");
+    let url = repository
+        .and_then(Value::as_str)
+        .or_else(|| repository?.get("url").and_then(Value::as_str));
+    url.map(|value| value.to_ascii_lowercase().contains(OFFICIAL_DSH_REPOSITORY))
+        .unwrap_or(false)
+}
+
+fn inspect_dsh_package(
+    node: &NodeRuntime,
+    package_root: &Path,
+    channel: &CoreChannel,
+) -> Option<CoreRuntime> {
+    let manifest_path = package_root.join("package.json");
+    let manifest: Value = serde_json::from_slice(&fs::read(manifest_path).ok()?).ok()?;
+    if manifest.get("name").and_then(Value::as_str) != Some(channel.package_name.as_str()) {
+        return None;
+    }
+    if !official_dsh_repository(&manifest) {
+        return None;
+    }
+    let version = manifest.get("version").and_then(Value::as_str)?.to_owned();
+    if !compatible_core_version(&version, channel) {
+        return None;
+    }
+    let entry = package_root.join("lib").join("bin.js");
+    if !entry.is_file() {
+        return None;
+    }
+    let version_output = {
+        let mut command = quiet_command(&node.executable);
+        command.arg(&entry).arg("--version");
+        command_output(command)
+    }?;
+    if !version_output.contains(&version) {
+        return None;
+    }
+    Some(CoreRuntime {
+        directory: package_root.to_owned(),
+        entry,
+        version,
+    })
+}
+
+fn discover_external_for_node(
+    node: &NodeRuntime,
+    channel: &CoreChannel,
+) -> Option<(NodeRuntime, CoreRuntime)> {
+    let global_root = npm_global_root(node)?;
+    let package_root = global_root.join("@deepseek-ai").join("dsh");
+    let core = inspect_dsh_package(node, &package_root, channel)?;
+    Some((node.clone(), core))
+}
+
+fn discover_external_runtime(channel: &CoreChannel) -> Option<(NodeRuntime, CoreRuntime)> {
+    if channel.package_name != "@deepseek-ai/dsh" {
+        return None;
+    }
+    system_node_candidates()
+        .into_iter()
+        .filter_map(|candidate| inspect_system_node(&candidate))
+        .find_map(|node| discover_external_for_node(&node, channel))
+}
+
+fn external_binding_path(user_root: &Path) -> PathBuf {
+    user_root.join(EXTERNAL_BINDING_FILE)
+}
+
+fn write_external_binding(
+    user_root: &Path,
+    node: &NodeRuntime,
+    core: &CoreRuntime,
+) -> Result<(), String> {
+    let binding = ExternalBinding {
+        node_executable: node.executable.clone(),
+        npm_cli: node.npm_cli.clone(),
+        node_version: node.version.clone(),
+        core_root: core.directory.clone(),
+        core_version: core.version.clone(),
+    };
+    fs::write(
+        external_binding_path(user_root),
+        serde_json::to_vec_pretty(&binding)
+            .map_err(|error| fail(format!("保存系统 DSH 绑定失败：{error}")))?,
+    )
+    .map_err(|error| fail(format!("保存系统 DSH 绑定失败：{error}")))
+}
+
+fn read_external_binding(
+    user_root: &Path,
+    channel: &CoreChannel,
+) -> Option<(NodeRuntime, CoreRuntime)> {
+    let binding: ExternalBinding =
+        serde_json::from_slice(&fs::read(external_binding_path(user_root)).ok()?).ok()?;
+    let node = inspect_system_node(&binding.node_executable)?;
+    if node.version != binding.node_version || node.npm_cli != binding.npm_cli {
+        return None;
+    }
+    let core = inspect_dsh_package(&node, &binding.core_root, channel)?;
+    if core.version != binding.core_version {
+        return None;
+    }
+    Some((node, core))
+}
+
+fn clear_external_binding(user_root: &Path) {
+    let _ = fs::remove_file(external_binding_path(user_root));
+}
+
 fn ensure_node(app: &AppHandle, state: &AppState) -> Result<NodeRuntime, String> {
+    if let Some(system) = discover_system_node() {
+        emit_state(
+            app,
+            "已复用本机 Node.js",
+            &format!(
+                "已检测到兼容的 Node.js {}，将使用本机运行时安装或启动 DSH。",
+                system.version
+            ),
+            Some(12),
+        );
+        return Ok(system);
+    }
+
+    ensure_managed_node(app, state)
+}
+
+fn ensure_managed_node(app: &AppHandle, state: &AppState) -> Result<NodeRuntime, String> {
     let target = node_target()?;
     let data_root = user_data_root(app)?;
     let runtime_root = data_root.join("runtime").join("node").join(NODE_VERSION);
@@ -415,6 +788,7 @@ fn ensure_node(app: &AppHandle, state: &AppState) -> Result<NodeRuntime, String>
         return Ok(NodeRuntime {
             executable,
             npm_cli,
+            version: NODE_VERSION.to_owned(),
         });
     }
 
@@ -519,6 +893,7 @@ fn ensure_node(app: &AppHandle, state: &AppState) -> Result<NodeRuntime, String>
     Ok(NodeRuntime {
         executable,
         npm_cli,
+        version: NODE_VERSION.to_owned(),
     })
 }
 
@@ -651,13 +1026,16 @@ fn wait_process(state: &AppState, kind: ProcessKind) -> Result<ExitStatus, Strin
 fn hide_descendant_consoles(command: &mut Command, app: &AppHandle) -> Result<(), String> {
     if cfg!(target_os = "windows") {
         let preload = resource_root(app)?.join("client/runtime/hide-console.cjs");
-        let existing = std::env::var("NODE_OPTIONS").unwrap_or_default();
-        // NODE_OPTIONS consumes backslash escapes inside quoted paths.
-        let preload = preload.to_string_lossy().replace('\\', "/");
-        command.env(
-            "NODE_OPTIONS",
-            format!("{existing} --require \"{preload}\""),
-        );
+        if !preload.is_file() {
+            return Err(fail(format!(
+                "缺少 Windows 子进程隐藏模块：{}",
+                preload.display()
+            )));
+        }
+        // Keep extended Windows paths out of Node's module resolver. In
+        // particular, replacing slashes in \\?\ paths produces invalid //?/ URLs.
+        let preload = normalize_launch_path(preload);
+        command.arg("--require").arg(preload);
     }
     Ok(())
 }
@@ -699,17 +1077,59 @@ fn run_manager(
         .env("DSH_CLIENT_NODE_BINARY", &node.executable)
         .env("DSH_CLIENT_PACKAGE_MANAGER", "npm")
         .env("DSH_CLIENT_NPM_CLI", &node.npm_cli);
+    let output = spawn_managed(state, ProcessKind::Manager, command)?;
+    let status = wait_process(state, ProcessKind::Manager)?;
+    if !status.success() {
+        let diagnostics = output.lock().map(|text| text.clone()).unwrap_or_default();
+        let diagnostics = diagnostics.trim();
+        return Err(fail(format!(
+            "DSH 核心安装失败，Node.js 子进程退出码：{}{}",
+            status
+                .code()
+                .map_or_else(|| "unknown".to_owned(), |code| code.to_string()),
+            if diagnostics.is_empty() {
+                "".to_owned()
+            } else {
+                format!("\n\n诊断输出：\n{diagnostics}")
+            }
+        )));
+    }
+    Ok(())
+}
+
+fn update_external_core(
+    app: &AppHandle,
+    state: &AppState,
+    node: &NodeRuntime,
+    channel: &CoreChannel,
+    version: &str,
+) -> Result<(NodeRuntime, CoreRuntime), String> {
+    emit_state(
+        app,
+        "正在更新本机 DSH",
+        &format!("正在使用本机 npm 更新官方 DSH 至 {version}…"),
+        Some(45),
+    );
+    let mut command = Command::new(&node.executable);
+    hide_descendant_consoles(&mut command, app)?;
+    command
+        .arg(&node.npm_cli)
+        .args(["install", "--global", "--no-audit", "--no-fund"])
+        .arg(format!("{}@{version}", channel.package_name))
+        .arg(format!("--registry={}", channel.registry));
     let _output = spawn_managed(state, ProcessKind::Manager, command)?;
     let status = wait_process(state, ProcessKind::Manager)?;
     if !status.success() {
         return Err(fail(format!(
-            "DSH 核心安装失败，Node.js 子进程退出码：{}",
+            "更新本机 DSH 失败，npm 子进程退出码：{}。请检查全局 npm 目录权限。",
             status
                 .code()
                 .map_or_else(|| "unknown".to_owned(), |code| code.to_string())
         )));
     }
-    Ok(())
+    discover_external_for_node(node, channel).ok_or_else(|| {
+        fail("DSH 更新命令已完成，但未能重新验证全局官方 DSH，请检查 npm 全局目录。")
+    })
 }
 
 fn read_current_core(core_root: &Path) -> Result<CurrentCore, String> {
@@ -725,6 +1145,32 @@ fn read_current_core(core_root: &Path) -> Result<CurrentCore, String> {
         return Err(fail("DSH 核心版本无效"));
     }
     Ok(current)
+}
+
+fn managed_core_runtime(user_root: &Path, channel: &CoreChannel) -> Result<CoreRuntime, String> {
+    let core_root = user_root.join("core");
+    let current = read_current_core(&core_root)?;
+    if !compatible_core_version(&current.version, channel) {
+        return Err(fail(format!(
+            "已缓存的 DSH 核心 {} 低于客户端最低要求。",
+            current.version
+        )));
+    }
+    let directory = core_root.join("versions").join(&current.version);
+    let entry = directory
+        .join("node_modules")
+        .join("@deepseek-ai")
+        .join("dsh")
+        .join("lib")
+        .join("bin.js");
+    if !entry.is_file() {
+        return Err(fail(format!("DSH 核心入口不存在：{}", entry.display())));
+    }
+    Ok(CoreRuntime {
+        directory,
+        entry,
+        version: current.version,
+    })
 }
 
 fn announced_url(output: &str) -> Option<String> {
@@ -760,28 +1206,16 @@ fn start_core(
     app: &AppHandle,
     state: &AppState,
     node: &NodeRuntime,
+    core: &CoreRuntime,
     user_root: &Path,
 ) -> Result<(String, String), String> {
-    let core_root = user_root.join("core");
-    let current = read_current_core(&core_root)?;
-    let core_directory = core_root.join("versions").join(&current.version);
-    let core_entry = core_directory
-        .join("node_modules")
-        .join("@deepseek-ai")
-        .join("dsh")
-        .join("lib")
-        .join("bin.js");
-    if !core_entry.is_file() {
-        return Err(fail(format!(
-            "DSH 核心入口不存在：{}",
-            core_entry.display()
-        )));
-    }
-
     emit_state(
         app,
         "正在启动本地 DSH 服务",
-        "正在分配本地端口并启动 Web 服务…",
+        &format!(
+            "正在使用 DSH {}，分配本地端口并启动 Web 服务…",
+            core.version
+        ),
         Some(55),
     );
     check_cancelled(state)?;
@@ -793,16 +1227,25 @@ fn start_core(
         .port();
     drop(listener);
     let base_url = format!("http://127.0.0.1:{port}");
+    let launch_context = format!(
+        "\n启动诊断：Node.js={}\n核心目录={}\n核心入口={}\n隐藏模块={}",
+        node.executable.display(),
+        core.directory.display(),
+        core.entry.display(),
+        resource_root(app)?
+            .join("client/runtime/hide-console.cjs")
+            .display()
+    );
     let mut command = Command::new(&node.executable);
     hide_descendant_consoles(&mut command, app)?;
     command
-        .arg(&core_entry)
+        .arg(&core.entry)
         .args(["web", "--host", "127.0.0.1", "--port"])
         .arg(port.to_string())
         .args(["--no-open"])
-        .current_dir(&core_directory)
+        .current_dir(&core.directory)
         .env("DSH_HOME", user_root.join("dsh-home"))
-        .env("DSH_CLIENT_CORE_VERSION", &current.version)
+        .env("DSH_CLIENT_CORE_VERSION", &core.version)
         .env("DSH_CLIENT_APP", "1");
     let output = spawn_managed(state, ProcessKind::Core, command)?;
     let client = http_client(Duration::from_secs(3), true)?;
@@ -814,11 +1257,12 @@ fn start_core(
         if let Some(status) = poll_process(state, ProcessKind::Core)? {
             let diagnostics = output.lock().map(|text| text.clone()).unwrap_or_default();
             return Err(fail(format!(
-                "DSH 核心在 Web UI 就绪前退出（{}）\n{}",
+                "DSH 核心在 Web UI 就绪前退出（{}）\n{}{}",
                 status
                     .code()
                     .map_or_else(|| "unknown".to_owned(), |code| code.to_string()),
-                diagnostics.trim()
+                diagnostics.trim(),
+                launch_context
             )));
         }
         let diagnostics = output.lock().map(|text| text.clone()).unwrap_or_default();
@@ -831,7 +1275,7 @@ fn start_core(
                         "本地服务已就绪，正在打开安全连接…",
                         Some(98),
                     );
-                    return Ok((current.version, url));
+                    return Ok((core.version.clone(), url));
                 }
                 Ok(false) => "DSH Web UI 尚未完成登录态初始化".to_owned(),
                 Err(error) => error,
@@ -845,7 +1289,7 @@ fn start_core(
                         "本地服务已就绪，正在打开安全连接…",
                         Some(98),
                     );
-                    return Ok((current.version, base_url));
+                    return Ok((core.version.clone(), base_url));
                 }
                 Ok(false) => "本地服务返回未就绪状态".to_owned(),
                 Err(error) => error,
@@ -869,12 +1313,43 @@ fn start_core(
             stop_process(state, ProcessKind::Core);
             let diagnostics = output.lock().map(|text| text.clone()).unwrap_or_default();
             return Err(fail(format!(
-                "DSH Web UI 未在 90 秒内就绪：{}\n{}",
+                "DSH Web UI 未在 90 秒内就绪：{}\n{}{}",
                 last_error,
-                diagnostics.trim()
+                diagnostics.trim(),
+                launch_context
             )));
         }
         thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn start_core_with_recovery(
+    app: &AppHandle,
+    state: &AppState,
+    node: &NodeRuntime,
+    core: &CoreRuntime,
+    user_root: &Path,
+) -> Result<(String, String), String> {
+    match start_core(app, state, node, core, user_root) {
+        Ok(ready) => Ok(ready),
+        Err(primary) => {
+            check_cancelled(state)?;
+            stop_process(state, ProcessKind::Core);
+            emit_state(
+                app,
+                "正在尝试备用运行时",
+                "本次启动失败，正在检查客户端托管 Node.js…",
+                Some(30),
+            );
+            let fallback = ensure_managed_node(app, state)
+                .map_err(|error| format!("{primary}\n备用运行时准备失败：{error}"))?;
+            if fallback.executable == node.executable {
+                return Err(primary);
+            }
+            start_core(app, state, &fallback, core, user_root).map_err(|error| {
+                format!("首选运行时启动失败：{primary}\n备用运行时启动失败：{error}")
+            })
+        }
     }
 }
 
@@ -883,15 +1358,93 @@ fn start_client_blocking(app: &AppHandle, state: &AppState) -> Result<String, St
         let user_root = user_data_root(app)?;
         fs::create_dir_all(&user_root)
             .map_err(|error| fail(format!("无法创建应用数据目录：{error}")))?;
+        let _ = fs::write(user_root.join("startup-status.log"), "正在启动\n");
+        let channel = read_channel(app)?;
+        if channel.package_name != "@deepseek-ai/dsh" || !channel.registry.starts_with("https://") {
+            return Err(fail("核心渠道配置无效"));
+        }
+
+        emit_state(
+            app,
+            "正在检测本机运行环境",
+            "正在检查本机 Node.js 和官方 DSH 核心…",
+            Some(5),
+        );
+
+        let external = if let Some(bound) = read_external_binding(&user_root, &channel) {
+            Some(bound)
+        } else if let Some(discovered) = discover_external_runtime(&channel) {
+            write_external_binding(&user_root, &discovered.0, &discovered.1)?;
+            Some(discovered)
+        } else {
+            None
+        };
+        if let Some((node, core)) = external {
+            emit_state(
+                app,
+                "已复用本机 DSH",
+                &format!(
+                    "已连接本机 Node.js {} 和官方 DSH {}，正在启动本地 Web 服务…",
+                    node.version, core.version
+                ),
+                Some(35),
+            );
+            let (_version, url) = start_core_with_recovery(app, state, &node, &core, &user_root)?;
+            return Ok(url);
+        }
+
+        clear_external_binding(&user_root);
         let node = ensure_node(app, state)?;
         emit_state(
             app,
-            "正在检查 DSH 核心",
-            "Node.js 运行时已就绪，正在检查官方核心版本…",
+            "正在准备 DSH 核心",
+            &format!(
+                "Node.js {} 已就绪，正在从官方 npm registry 检查 DSH 核心…",
+                node.version
+            ),
             Some(40),
         );
-        run_manager(app, state, &node, &user_root)?;
-        let (_version, url) = start_core(app, state, &node, &user_root)?;
+        let (node, core) = match run_manager(app, state, &node, &user_root) {
+            Ok(()) => (node.clone(), managed_core_runtime(&user_root, &channel)?),
+            Err(primary_error) => {
+                check_cancelled(state)?;
+                if let Ok(core) = managed_core_runtime(&user_root, &channel) {
+                    emit_state(
+                        app,
+                        "已切换到本地缓存",
+                        &format!(
+                            "官方核心检查失败，已使用已缓存的 DSH {} 启动。",
+                            core.version
+                        ),
+                        Some(50),
+                    );
+                    (node.clone(), core)
+                } else {
+                    let system_node = discover_system_node();
+                    let using_system_node = system_node
+                        .as_ref()
+                        .map(|system| system.executable == node.executable)
+                        .unwrap_or(false);
+                    if !using_system_node {
+                        return Err(primary_error);
+                    }
+                    emit_state(
+                        app,
+                        "正在切换备用运行时",
+                        "本机 Node.js 的核心安装失败，正在改用客户端托管 Node.js 自动修复…",
+                        Some(18),
+                    );
+                    let fallback_node = ensure_managed_node(app, state)?;
+                    run_manager(app, state, &fallback_node, &user_root).map_err(|fallback_error| {
+                        fail(format!(
+                            "自动修复失败。\n本机 Node.js：{primary_error}\n客户端托管 Node.js：{fallback_error}"
+                        ))
+                    })?;
+                    (fallback_node, managed_core_runtime(&user_root, &channel)?)
+                }
+            }
+        };
+        let (_version, url) = start_core_with_recovery(app, state, &node, &core, &user_root)?;
         Ok(url)
     })();
     if let Err(error) = &result {
@@ -929,11 +1482,44 @@ fn navigate_to_core_window(app: &AppHandle, url: &str) -> Result<(), String> {
 }
 
 fn current_core_version(app: &AppHandle) -> String {
+    if let (Ok(root), Ok(channel)) = (user_data_root(app), read_channel(app)) {
+        if let Some((_, core)) = read_external_binding(&root, &channel) {
+            return core.version;
+        }
+    }
     user_data_root(app)
         .ok()
         .and_then(|root| read_current_core(&root.join("core")).ok())
         .map(|core| core.version)
         .unwrap_or_else(|| "尚未安装".to_owned())
+}
+
+fn current_runtime_source(app: &AppHandle) -> String {
+    if let (Ok(root), Ok(channel)) = (user_data_root(app), read_channel(app)) {
+        if let Some((node, core)) = read_external_binding(&root, &channel) {
+            return format!(
+                "复用本机官方安装\nNode.js {}\n{}\n路径：{}",
+                node.version,
+                core.version,
+                core.directory.display()
+            );
+        }
+    }
+    if let Some(node) = discover_system_node() {
+        return format!(
+            "复用本机 Node.js + 客户端托管 DSH\nNode.js {}\n核心路径：{}",
+            node.version,
+            user_data_root(app)
+                .map(|root| root.join("core").display().to_string())
+                .unwrap_or_else(|_| "未知".to_owned())
+        );
+    }
+    format!(
+        "客户端托管运行时\nNode.js {NODE_VERSION}\n路径：{}",
+        user_data_root(app)
+            .map(|root| root.join("runtime").join("node").display().to_string())
+            .unwrap_or_else(|_| "未知".to_owned())
+    )
 }
 
 fn show_about(app: &AppHandle) {
@@ -947,8 +1533,9 @@ fn show_about(app: &AppHandle) {
         .and_then(Value::as_str)
         .unwrap_or("DeepSeek Harness 独立桌面客户端");
     let message = format!(
-        "{description}\n\n桌面客户端 v0.1.0\nDSH 核心 {core}\n客户端开发者 · {developer}\n\nNode.js 运行时在首次启动时按需下载并缓存。",
-        core = current_core_version(app)
+        "{description}\n\n桌面客户端 v0.1.0\nDSH 核心 {core}\n客户端开发者 · {developer}\n\n{runtime}",
+        core = current_core_version(app),
+        runtime = current_runtime_source(app)
     );
     app.dialog()
         .message(message)
@@ -969,7 +1556,12 @@ fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<Strin
         return Err(fail("核心渠道配置无效"));
     }
     let user_root = user_data_root(app)?;
-    let current = read_current_core(&user_root.join("core"))?;
+    let external = read_external_binding(&user_root, &channel);
+    let current_version = if let Some((_, core)) = external.as_ref() {
+        core.version.clone()
+    } else {
+        read_current_core(&user_root.join("core"))?.version
+    };
     let package_path = channel.package_name.clone();
     let metadata_url = format!("{}/{}", channel.registry, package_path);
     let metadata: Value = http_client(Duration::from_secs(20), false)?
@@ -983,15 +1575,25 @@ fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<Strin
         .and_then(|tags| tags.get(&channel.dist_tag))
         .and_then(Value::as_str)
         .ok_or_else(|| fail("官方 registry 未返回可用核心版本"))?;
-    if available == current.version {
+    if !compatible_core_version(available, &channel) {
+        return Err(fail(format!(
+            "官方 DSH 版本 {available} 低于客户端要求的最低版本。"
+        )));
+    }
+    if available == current_version {
         return Ok(format!("当前 DSH 核心已是 {available}"));
     }
 
+    let source = if external.is_some() {
+        "本机全局安装"
+    } else {
+        "客户端托管安装"
+    };
     let accepted = app
         .dialog()
         .message(format!(
-            "发现 DSH 核心更新：{} → {}",
-            current.version, available
+            "发现 DSH 核心更新：{} → {}\n来源：{}\n\n官方仓库：github.com/deepseek-ai/deepseek-harness\n更新前会先停止当前本地 DSH 服务。",
+            current_version, available, source
         ))
         .title("发现 DSH 核心更新")
         .kind(MessageDialogKind::Info)
@@ -1000,10 +1602,19 @@ fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<Strin
     if !accepted {
         return Ok("已取消更新。".to_owned());
     }
-    let node = ensure_node(app, state)?;
-    run_manager(app, state, &node, &user_root)?;
     stop_process(state, ProcessKind::Core);
-    let (version, url) = start_core(app, state, &node, &user_root)?;
+    let (node, core) = if let Some((node, _)) = external {
+        let updated = update_external_core(app, state, &node, &channel, available)?;
+        write_external_binding(&user_root, &updated.0, &updated.1)?;
+        updated
+    } else {
+        let node = ensure_node(app, state)?;
+        run_manager(app, state, &node, &user_root)?;
+        let core = managed_core_runtime(&user_root, &channel)?;
+        clear_external_binding(&user_root);
+        (node, core)
+    };
+    let (version, url) = start_core(app, state, &node, &core, &user_root)?;
     navigate_to_core_window(app, &url)?;
     Ok(format!("DSH 核心已更新至 {version}"))
 }
@@ -1115,8 +1726,23 @@ fn cancel_startup(app: AppHandle, state: State<'_, AppState>) -> Result<(), Stri
 }
 
 #[tauri::command]
+fn reset_startup(state: State<'_, AppState>) -> Result<(), String> {
+    state.inner.cancelled.store(false, Ordering::SeqCst);
+    state.inner.startup_started.store(false, Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
 async fn navigate_to_core(app: AppHandle, url: String) -> Result<(), String> {
-    navigate_to_core_window(&app, &url)
+    navigate_to_core_window(&app, &url)?;
+    if let Ok(root) = user_data_root(&app) {
+        // Do not persist the authentication URL or token.
+        let _ = fs::write(
+            root.join("startup-status.log"),
+            "本地服务已通过就绪检查，客户端已打开核心 WebView。\n",
+        );
+    }
+    Ok(())
 }
 
 fn main() {
@@ -1133,6 +1759,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             start_client,
             cancel_startup,
+            reset_startup,
             navigate_to_core,
             shell_action
         ])
@@ -1164,4 +1791,55 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn extended_windows_launch_paths_preserve_drive_and_unc() {
+        assert_eq!(
+            normalize_launch_path(PathBuf::from(r"\\?\D:\Program Files\nodejs\node.exe")),
+            PathBuf::from(r"D:\Program Files\nodejs\node.exe")
+        );
+        assert_eq!(
+            normalize_launch_path(PathBuf::from(r"\\?\UNC\server\share\node.exe")),
+            PathBuf::from(r"\\server\share\node.exe")
+        );
+    }
+
+    fn test_channel(minimum: Option<&str>) -> CoreChannel {
+        CoreChannel {
+            package_name: "@deepseek-ai/dsh".to_owned(),
+            registry: "https://registry.npmjs.org".to_owned(),
+            dist_tag: "latest".to_owned(),
+            minimum_core_version: minimum.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn node_requirement_accepts_supported_release_lines() {
+        assert!(supported_node_version(&Version::parse("22.19.0").unwrap()));
+        assert!(supported_node_version(&Version::parse("22.20.0").unwrap()));
+        assert!(supported_node_version(&Version::parse("24.15.0").unwrap()));
+        assert!(!supported_node_version(&Version::parse("20.19.0").unwrap()));
+        assert!(!supported_node_version(&Version::parse("23.0.0").unwrap()));
+    }
+
+    #[test]
+    fn external_core_requires_the_configured_minimum() {
+        let channel = test_channel(Some("0.1.5-rc.1"));
+        assert!(compatible_core_version("0.1.5-rc.1", &channel));
+        assert!(compatible_core_version("0.1.6", &channel));
+        assert!(!compatible_core_version("0.1.4", &channel));
+        assert!(!compatible_core_version("not-a-version", &channel));
+    }
+
+    #[test]
+    fn channel_without_minimum_keeps_backward_compatibility() {
+        let channel = test_channel(None);
+        assert!(compatible_core_version("0.0.1", &channel));
+    }
 }

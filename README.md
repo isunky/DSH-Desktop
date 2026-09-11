@@ -22,14 +22,14 @@
 </div>
 
 > [!NOTE]
-> 本项目处于预览阶段。桌面安装包只包含 Tauri 壳和启动管理器，不内置 Node.js 或完整 DSH 核心；首次启动会按需下载并缓存运行环境。
+> 本项目处于预览阶段。桌面安装包只包含 Tauri 壳和启动管理器，不内置 Node.js 或完整 DSH 核心；首次启动会优先检测并复用满足要求的本机 Node.js 与全局官方 DSH，找不到时才按需下载并缓存运行环境。
 
 ## 亮点
 
 | 方向 | 说明 |
 | --- | --- |
 | 轻量桌面壳 | 使用 Tauri + 系统 WebView，避免把完整浏览器运行时打进安装包。 |
-| 按需运行时 | 首次启动下载固定版本 Node.js，并使用 SHA-256 校验；后续直接复用本地缓存。 |
+| 按需运行时 | 首次启动优先复用兼容的本机 Node.js/全局 DSH；找不到时才下载固定版本 Node.js，并使用 SHA-256 校验。 |
 | 核心独立管理 | DSH 核心通过 npm 按需安装，版本目录与用户数据分离，支持保留旧版本。 |
 | 沉浸式体验 | 自定义无边框头部、统一窗口控件；核心页面在独立 WebView 中原样运行。 |
 | 安静运行 | Windows 启动任务和 DSH 后台进程隐藏控制台窗口，诊断输出仍由客户端接收。 |
@@ -39,8 +39,11 @@
 ```mermaid
 flowchart LR
     Shell["Tauri 壳<br/>Rust + 系统 WebView"] --> Boot["启动协调器"]
-    Boot --> Node["按需下载<br/>Node.js 22.19.0"]
-    Boot --> Core["按需安装<br/>@deepseek-ai/dsh"]
+    Boot --> Detect["检测本机运行时"]
+    Detect --> System["复用系统 Node.js<br/>与全局 DSH"]
+    Detect --> Node["缺少时按需下载<br/>Node.js 22.19.0"]
+    Detect --> Core["缺少时按需安装<br/>@deepseek-ai/dsh"]
+    System --> Service["本地 DSH Web 服务"]
     Node --> Service["本地 DSH Web 服务"]
     Core --> Service
     Service --> UI["独立核心 WebView<br/>核心界面保持原样"]
@@ -50,8 +53,8 @@ flowchart LR
 启动流程如下：
 
 1. Tauri 壳启动自定义头部和启动页；
-2. 下载并校验 Node.js `22.19.0`；
-3. 使用该 Node.js 从配置的 npm registry 安装 `@deepseek-ai/dsh`；
+2. 检查满足 `^22.19.0 || >=24.0.0` 的本机 Node.js，以及全局官方 `@deepseek-ai/dsh`；
+3. 验证通过则保存路径绑定并直接使用；否则复用本机 Node.js 安装 DSH，或下载并校验客户端托管的 Node.js；
 4. 启动本地 DSH Web 服务，并将核心页面加载到独立 WebView；
 5. 已缓存 Node.js 与核心时，可以断网启动。
 
@@ -88,7 +91,7 @@ pnpm run client:check
 pnpm run client:dev
 ```
 
-首次启动会安装 `client/core-channel.json` 中指定的核心版本。也可以先使用开发机 Node.js 检查或安装核心：
+首次启动会安装 `client/core-channel.json` 中指定的核心版本；如果本机已有兼容的全局官方 DSH，则会直接复用。也可以先使用开发机 Node.js 检查或安装客户端托管核心：
 
 ```sh
 pnpm run client:core:check
@@ -98,6 +101,19 @@ pnpm run client:core:install
 启动页会显示准备阶段和耗时。首次安装时间较长时，可以点击取消按钮、按 `Esc` 或直接关闭窗口；客户端会停止安装任务和本地 DSH 服务。
 
 ## 本地构建
+
+Windows 用户可在仓库根目录直接双击 `Build-Windows.cmd`。脚本使用 PowerShell 7.2+（`pwsh.exe`），不会回退到 Windows PowerShell 5；随后检查 Node.js、Rust/MSVC 和 Tauri CLI，初始化子模块、安装依赖、运行测试，并生成 Windows x64 安装包。该一键脚本不生成便携版。命令行也可执行：
+
+```powershell
+.\Build-Windows.ps1
+```
+
+依赖已安装时可跳过 `pnpm install`，调试构建时也可按需跳过检查：
+
+```powershell
+.\Build-Windows.ps1 -SkipInstall
+.\Build-Windows.ps1 -SkipInstall -SkipChecks
+```
 
 | 目标 | 命令 | 产物目录 |
 | --- | --- | --- |
@@ -121,23 +137,25 @@ Windows 安装器在目标机缺少 WebView2 时会尝试联网下载引导程�
 | Windows | `%LOCALAPPDATA%/DeepSeek Harness/` |
 | macOS | `~/Library/Application Support/DeepSeek Harness/` |
 
-目录结构：
+目录结构（系统 DSH 被复用时，核心目录会额外保存外部绑定）：
 
 ```text
 DeepSeek Harness/
 ├─ runtime/node/22.19.0/       # 按需下载的 Node.js
 ├─ core/versions/<version>/    # 按版本保存的 DSH 核心
 ├─ core/current.json           # 当前使用的核心版本
+├─ runtime-binding.json        # 本机 Node.js/全局 DSH 的已验证路径绑定
 └─ dsh-home/                   # DSH 用户数据，不随核心更新删除
 ```
 
-顶部“更多”中的“检查核心更新”会读取 `client/core-channel.json`，确认后下载新版本、保留旧版本并重启本地核心。核心通道的唯一配置点如下：
+顶部“更多”中的“检查核心更新”会读取 `client/core-channel.json`。复用系统 DSH 时，确认后使用原 Node.js/npm 更新全局官方安装；客户端托管模式则下载新版本、保留旧版本并重启本地核心。核心通道的唯一配置点如下：
 
 ```json
 {
   "packageName": "@deepseek-ai/dsh",
   "registry": "https://registry.npmjs.org",
   "distTag": "latest",
+  "minimumCoreVersion": "0.1.5-rc.1",
   "autoUpdate": false,
   "defaultPort": 3080
 }

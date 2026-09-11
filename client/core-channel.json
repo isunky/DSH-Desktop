@@ -2,6 +2,7 @@
   "packageName": "@deepseek-ai/dsh",
   "registry": "https://registry.npmjs.org",
   "distTag": "latest",
+  "minimumCoreVersion": "0.1.5-rc.1",
   "autoUpdate": false,
   "defaultPort": 3080
 }
