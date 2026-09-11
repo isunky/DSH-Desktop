@@ -18,6 +18,8 @@
     "client:core:install": "node scripts/client.mjs core:install",
     "client:update-upstream": "node scripts/client.mjs update-upstream",
     "client:check": "node scripts/client.mjs check",
+    "client:version:next": "node scripts/release-version.mjs next",
+    "client:version:bump": "node scripts/release-version.mjs bump",
     "client:clean": "node scripts/client.mjs clean"
   },
   "devDependencies": {

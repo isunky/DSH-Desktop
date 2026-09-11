@@ -48,6 +48,8 @@ jobs:
         run: |
           pnpm run client:check
           node --check scripts/client.mjs
+          node --check scripts/release-version.mjs
+          node scripts/release-version.mjs next patch
           node --check client/runtime/core-manager.mjs
           node --check client/runtime/hide-console.cjs
           node --check client/tauri/loading.js

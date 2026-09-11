@@ -1,0 +1,86 @@
+name: Bump Desktop Client Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version increment to apply before publishing
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-version-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  bump-and-tag:
+    name: Increment version and create release tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+
+      - name: Calculate and apply next version
+        id: version
+        shell: bash
+        env:
+          BUMP_KIND: ${{ inputs.bump }}
+        run: |
+          version="$(node scripts/release-version.mjs bump "$BUMP_KIND")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Preparing DeepSeek Harness v$version"
+
+      - name: Verify version files
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          test "$(node scripts/release-version.mjs next patch)" != "$RELEASE_VERSION"
+          git diff --check
+          grep -q "\"version\": \"${RELEASE_VERSION}\"" package.json
+          grep -q "version = \"${RELEASE_VERSION}\"" src-tauri/Cargo.toml
+          grep -q "\"version\": \"${RELEASE_VERSION}\"" src-tauri/tauri.conf.json
+
+      - name: Commit version files and push release tag
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git commit -m "chore(release): v${RELEASE_VERSION} [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git tag -a "$RELEASE_TAG" -m "DeepSeek Harness $RELEASE_TAG"
+          git push origin "$RELEASE_TAG"
+
+      - name: Publish summary
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          {
+            echo "### Release prepared"
+            echo ""
+            echo "Version: `$RELEASE_VERSION`"
+            echo "Tag: `$RELEASE_TAG`"
+            echo "The tag push started the desktop build and GitHub Release workflow."
+          } >> "$GITHUB_STEP_SUMMARY"

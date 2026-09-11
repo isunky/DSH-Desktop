@@ -139,12 +139,21 @@ async function check() {
   const commit = await ensureUpstream()
   const upstreamManifest = JSON.parse(await readFile(join(UPSTREAM, 'package.json'), 'utf8'))
   const channel = await readChannel()
+  const packageJson = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
+  const tauriConfig = JSON.parse(await readFile(join(ROOT, 'src-tauri', 'tauri.conf.json'), 'utf8'))
+  const cargoText = await readFile(join(ROOT, 'src-tauri', 'Cargo.toml'), 'utf8')
+  const cargoVersion = cargoText.match(/^version\s*=\s*"([^"]+)"/mu)?.[1]
+  const clientVersion = packageJson.version
+  if (!clientVersion || tauriConfig.version !== clientVersion || cargoVersion !== clientVersion) {
+    fail(`client version mismatch: package.json=${clientVersion}, tauri=${tauriConfig.version}, cargo=${cargoVersion}`)
+  }
   if (channel.packageName !== '@deepseek-ai/dsh') fail('client/core-channel.json must point to @deepseek-ai/dsh')
   if (!channel.registry.startsWith('https://')) fail('core registry must use HTTPS')
   for (const path of ['src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'client/tauri/index.html']) {
     try { await readFile(join(ROOT, path)) } catch { fail(`missing Tauri client file: ${path}`) }
   }
   console.log(`client: upstream ${commit.slice(0, 12)} is clean`)
+  console.log(`client: version ${clientVersion}`)
   console.log(`client: upstream dsh ${upstreamManifest.version}; official core channel ${channel.packageName}@${channel.distTag}`)
   console.log(`client: source ${UPSTREAM_URL}`)
   console.log('client: Tauri shell uses an on-demand Node.js runtime and on-demand DSH core')

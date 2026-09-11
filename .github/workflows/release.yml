@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,9 +13,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-version:
+    name: Verify release version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v7
+
+      - name: Check tag and client versions match
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          test "$tag_version" = "$package_version"
+          test "$tag_version" = "$tauri_version"
+
   windows:
     name: Windows x64
     runs-on: windows-latest
+    needs: verify-version
     steps:
       - name: Checkout client and upstream
         uses: actions/checkout@v7
@@ -50,25 +66,18 @@ jobs:
       - name: Build Windows installer
         run: pnpm run client:package:win
 
-      - name: Build Windows portable directory
-        run: pnpm run client:package:dir
-
-      - name: Create Windows portable archive
-        shell: pwsh
-        run: Compress-Archive -Path artifacts/dir/* -DestinationPath artifacts/win-x64/DeepSeek-Harness-${{ github.ref_name }}-win-x64-portable.zip
-
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
         with:
           name: windows-x64
           path: |
             artifacts/win-x64/DeepSeek-Harness-*.exe
-            artifacts/win-x64/*portable.zip
           if-no-files-found: error
 
   mac-arm64:
     name: macOS arm64
     runs-on: macos-15
+    needs: verify-version
     steps:
       - name: Checkout client and upstream
         uses: actions/checkout@v7
@@ -113,6 +122,7 @@ jobs:
   mac-x64:
     name: macOS x64
     runs-on: macos-15-intel
+    needs: verify-version
     steps:
       - name: Checkout client and upstream
         uses: actions/checkout@v7
@@ -156,7 +166,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [windows, mac-arm64, mac-x64]
+    needs: [verify-version, windows, mac-arm64, mac-x64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:

@@ -164,14 +164,18 @@ DeepSeek Harness/
 ## GitHub Actions
 
 - `Client CI`：在 `main` 推送和 Pull Request 时，校验上游 submodule、Node 脚本、隐藏控制台逻辑、Rust 格式和 Tauri 编译；
-- `Release Desktop Client`：推送 `v*` 标签时，分别构建 Windows 安装包/便携 ZIP 和 macOS DMG，并自动发布 GitHub Release；也支持手动触发构建。
+- `Bump Desktop Client Version`：从 Actions 手动选择 patch/minor/major，自动递增版本、提交版本文件并创建 `v*` 标签；
+- `Release Desktop Client`：检测到 `v*` 标签后，分别构建 Windows 安装包和 macOS DMG，并自动发布 GitHub Release。
 
-发布前请同步修改根目录 `package.json` 与 `src-tauri/tauri.conf.json` 的版本号，然后创建正式标签：
+推荐在 GitHub 的 Actions 页面运行 `Bump Desktop Client Version`。默认执行 patch 递增，例如当前版本和最新标签都是 `0.1.0` 时，会自动生成 `0.1.1`。也可以在本地预览下一版本：
 
-```sh
-git tag v0.1.0
-git push origin v0.1.0
+```text
+pnpm run client:version:next
+pnpm run client:version:next -- minor
+pnpm run client:version:bump
 ```
+
+版本 Action 会提交 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 和 `src-tauri/Cargo.lock`，然后推送版本标签；标签会自动触发构建和发布流程。
 
 ## 仓库结构
 
