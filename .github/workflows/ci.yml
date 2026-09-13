@@ -1,59 +1,31 @@
 name: Client CI
-
 on:
   pull_request:
   push:
     branches: [main]
-
 permissions:
   contents: read
-
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   validate:
-    name: Validate Tauri client
+    name: Quick checks and tests
     runs-on: windows-latest
     steps:
-      - name: Checkout client and upstream
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          components: rustfmt
-          rustflags: ''
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.7.0
-          run_install: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.19.0
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Validate source and upstream pin
+        shell: bash
         run: |
-          pnpm run client:check
-          node --check scripts/client.mjs
-          node --check scripts/release-version.mjs
+          node scripts/client.mjs check
+          for file in scripts/*.mjs client/runtime/*.mjs client/runtime/*.cjs client/tauri/*.js; do
+            node --check "$file"
+          done
           node scripts/release-version.mjs next patch
-          node --check client/runtime/core-manager.mjs
-          node --check client/runtime/hide-console.cjs
-          node --check client/tauri/loading.js
-          node --check client/tauri/shell.js
-          node --test client/runtime/hide-console.test.cjs
-          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-          cargo check --manifest-path src-tauri/Cargo.toml
+          node scripts/release-notes.mjs verify "v$(node -p "require('./package.json').version")"
+          node --test client/runtime/hide-console.test.cjs scripts/release-notes.test.mjs

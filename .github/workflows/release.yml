@@ -1,186 +1,152 @@
 name: Release Desktop Client
-
 on:
   push:
-    tags:
-      - 'v*'
-
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version increment
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
 permissions:
-  contents: write
-
+  contents: read
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.repository }}
   cancel-in-progress: false
-
 jobs:
-  verify-version:
-    name: Verify release version
+  prepare:
+    name: Prepare release version
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
-      - name: Checkout tagged source
-        uses: actions/checkout@v7
-
-      - name: Check tag and client versions match
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+      - name: Bump version or reuse this run's tag
+        id: release
         shell: bash
+        env:
+          BUMP_KIND: ${{ inputs.bump }}
         run: |
-          tag_version="${GITHUB_REF_NAME#v}"
-          package_version="$(node -p "require('./package.json').version")"
-          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-          test "$tag_version" = "$package_version"
-          test "$tag_version" = "$tauri_version"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$GITHUB_REF" == refs/heads/* ]] || { echo "Select a branch to bump its version"; exit 1; }
+            marker="Release-Run: $GITHUB_RUN_ID"
+            tag=""
+            while IFS= read -r candidate; do
+              if [[ "$(git for-each-ref --format='%(contents)' "refs/tags/$candidate")" == *"$marker"* ]]; then
+                tag="$candidate"
+                break
+              fi
+            done < <(git tag --list 'v*')
+            if [[ -n "$tag" ]]; then
+              git checkout --detach "$tag"
+            else
+              version="$(node scripts/release-version.mjs bump "$BUMP_KIND")"
+              tag="v$version"
+              node scripts/release-notes.mjs verify "$tag"
+              git diff --check
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+              git commit -m "chore(release): $tag [skip ci]"
+              git tag -a "$tag" -m "DeepSeek Harness $tag" -m "$marker"
+              git push --atomic origin "HEAD:$GITHUB_REF" "refs/tags/$tag"
+            fi
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          node scripts/release-notes.mjs verify "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf '### Release prepared\n\nVersion: %s\n' "$tag" >> "$GITHUB_STEP_SUMMARY"
 
-  windows:
-    name: Windows x64
-    runs-on: windows-latest
-    needs: verify-version
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+            command: client:package:win
+            artifact: artifacts/win-x64/*.exe
+          - platform: macos-arm64
+            runner: macos-15
+            command: client:package:mac:arm64
+            artifact: artifacts/mac-arm64/*.dmg
+          - platform: macos-x64
+            runner: macos-15-intel
+            command: client:package:mac:x64
+            artifact: artifacts/mac-x64/*.dmg
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Checkout client and upstream
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           submodules: recursive
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/setup-node@v7
         with:
-          toolchain: stable
-          rustflags: ''
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version 2.11.4 --locked
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
+          node-version: 22.19.0
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.7.0
           run_install: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build Windows installer
-        run: pnpm run client:package:win
-
-      - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-x64
-          path: |
-            artifacts/win-x64/DeepSeek-Harness-*.exe
-          if-no-files-found: error
-
-  mac-arm64:
-    name: macOS arm64
-    runs-on: macos-15
-    needs: verify-version
-    steps:
-      - name: Checkout client and upstream
-        uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
           rustflags: ''
-
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version 2.11.4 --locked
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.7.0
-          run_install: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-          cache: pnpm
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Build macOS arm64 packages
-        run: pnpm run client:package:mac:arm64
-
-      - name: Upload macOS arm64 artifacts
-        uses: actions/upload-artifact@v7
+      - name: Build installer
+        run: pnpm run ${{ matrix.command }}
+      - uses: actions/upload-artifact@v7
         with:
-          name: macos-arm64
-          path: |
-            artifacts/mac-arm64/*.dmg
-          if-no-files-found: error
-
-  mac-x64:
-    name: macOS x64
-    runs-on: macos-15-intel
-    needs: verify-version
-    steps:
-      - name: Checkout client and upstream
-        uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          rustflags: ''
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version 2.11.4 --locked
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.7.0
-          run_install: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build macOS x64 packages
-        run: pnpm run client:package:mac:x64
-
-      - name: Upload macOS x64 artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: macos-x64
-          path: |
-            artifacts/mac-x64/*.dmg
+          name: ${{ matrix.platform }}
+          path: ${{ matrix.artifact }}
           if-no-files-found: error
 
   publish:
     name: Publish GitHub Release
-    needs: [verify-version, windows, mac-arm64, mac-x64]
+    needs: [prepare, build]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+      - uses: actions/download-artifact@v8
         with:
           path: release-assets
-
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "DeepSeek Harness ${GITHUB_REF_NAME}" --generate-notes
-
-      - name: Upload release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: find release-assets -type f -print0 | xargs -0 -n1 gh release upload "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --clobber
+      - name: Generate recent changes
+        run: node scripts/release-notes.mjs notes "$RELEASE_TAG" > release-notes.md
+      - name: Upload assets and publish
+        shell: bash
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "DeepSeek Harness $RELEASE_TAG" --notes-file release-notes.md
+          fi
+          mapfile -d '' assets < <(find release-assets -type f \( -name '*.exe' -o -name '*.dmg' \) -print0)
+          [[ "${#assets[@]}" -eq 3 ]] || { echo "Expected three platform installers"; exit 1; }
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md --draft=false
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
