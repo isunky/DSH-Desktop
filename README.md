@@ -7,7 +7,7 @@
 轻量、跨平台、按需加载的 DeepSeek Harness 独立桌面客户端
 
 <p>
-  <a href="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml"><img src="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml/badge.svg?branch=main" alt="Client CI"></a>
+  <a href="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml"><img src="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml/badge.svg?branch=main" alt="Basic CI"></a>
   <a href="https://github.com/isunky/DSH-Desktop/releases"><img src="https://img.shields.io/github/v/release/isunky/DSH-Desktop?display_name=tag&sort=semver" alt="Latest release"></a>
 </p>
 
@@ -118,11 +118,11 @@ Windows 用户可在仓库根目录直接双击 `Build-Windows.cmd`。脚本使�
 | 目标 | 命令 | 产物目录 |
 | --- | --- | --- |
 | Windows x64 安装包 | `pnpm run client:package:win` | `artifacts/win-x64/` |
-| Windows x64 便携目录 | `pnpm run client:package:dir` | `artifacts/dir/` |
+| Windows x64 应用目录（本地验证） | `pnpm run client:package:dir` | `artifacts/dir/` |
 | macOS arm64 | `pnpm run client:package:mac:arm64` | `artifacts/mac-arm64/` |
 | macOS x64 | `pnpm run client:package:mac:x64` | `artifacts/mac-x64/` |
 
-Windows 便携目录包含 `deepseek-harness.exe` 和 `client/` 运行时资源，可自行压缩分发。安装包和便携目录都不包含 Node.js 或 DSH 核心，目标机首次运行仍会按需下载。
+Windows 应用目录只用于本地验证，正式发布使用 Windows 安装包。安装包和应用目录都不包含 Node.js 或 DSH 核心，目标机首次运行仍会按需下载。
 
 Windows 安装器在目标机缺少 WebView2 时会尝试联网下载引导程序。离线部署时，请预先安装 WebView2，或调整 `src-tauri/tauri.conf.json` 的 WebView 安装策略。
 
@@ -150,6 +150,8 @@ DeepSeek Harness/
 
 顶部“更多”中的“检查核心更新”会读取 `client/core-channel.json`。复用系统 DSH 时，确认后使用原 Node.js/npm 更新全局官方安装；客户端托管模式则下载新版本、保留旧版本并重启本地核心。核心通道的唯一配置点如下：
 
+当 `autoUpdate` 为 `false` 时，启动过程只复用已验证的本地核心，不会在后台自动访问 registry 或升级版本；核心升级由用户在设置中手动确认。
+
 ```json
 {
   "packageName": "@deepseek-ai/dsh",
@@ -163,10 +165,10 @@ DeepSeek Harness/
 
 ## GitHub Actions
 
-- `Client CI`：在 `main` 推送和 Pull Request 时执行轻量源码检查与隐藏控制台测试；
-- `Release Desktop Client`：从 Actions 手动选择 patch/minor/major，自动更新版本、创建标签，在同一次运行中构建 Windows/macOS 安装包并发布 GitHub Release。
+- `Basic CI`：在 `main` 推送和 Pull Request 时执行源码检查与测试；
+- `Version Build`：从 Actions 选择 patch/minor/major，自动读取当前版本并递增，同步四个版本文件、创建标签，在同一次运行中构建 Windows/macOS 安装包并发布 GitHub Release。
 
-推荐在 GitHub 的 Actions 页面运行 `Release Desktop Client`，选择 `patch`、`minor` 或 `major`。例如当前版本为 `0.2.0`，选择 `patch` 会生成 `v0.2.1`。也可以在本地预览下一版本：
+推荐在 GitHub 的 Actions 页面运行 `Version Build`，选择 `patch`、`minor` 或 `major`。例如当前版本为 `0.3.0`，选择 `patch` 会自动生成 `v0.3.1`；无需手工修改版本号。也可以在本地预览下一版本：
 
 ```text
 pnpm run client:version:next

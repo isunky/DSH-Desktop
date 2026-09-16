@@ -1,4 +1,4 @@
-name: Client CI
+name: Basic CI
 on:
   pull_request:
   push:
@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   validate:
-    name: Quick checks and tests
+    name: Source checks and tests
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7

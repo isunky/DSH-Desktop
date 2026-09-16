@@ -1,11 +1,11 @@
-name: Release Desktop Client
+name: Version Build
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      bump:
-        description: Version increment
+      version_increment:
+        description: Automatic version increment
         required: true
         default: patch
         type: choice
@@ -13,11 +13,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.repository }}
+  group: version-build-${{ github.repository }}
   cancel-in-progress: false
 jobs:
   prepare:
-    name: Prepare release version
+    name: Prepare version
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -35,10 +35,12 @@ jobs:
         id: release
         shell: bash
         env:
-          BUMP_KIND: ${{ inputs.bump }}
+          BUMP_KIND: ${{ inputs.version_increment }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             [[ "$GITHUB_REF" == refs/heads/* ]] || { echo "Select a branch to bump its version"; exit 1; }
+            git fetch --prune origin "$GITHUB_REF_NAME" --tags
+            git checkout -B "$GITHUB_REF_NAME" "origin/$GITHUB_REF_NAME"
             marker="Release-Run: $GITHUB_RUN_ID"
             tag=""
             while IFS= read -r candidate; do
@@ -70,7 +72,7 @@ jobs:
           printf '### Release prepared\n\nVersion: %s\n' "$tag" >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build ${{ matrix.platform }} installer
     needs: prepare
     strategy:
       fail-fast: false
@@ -118,7 +120,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish GitHub Release
+    name: Publish version ${{ needs.prepare.outputs.tag }}
     needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:

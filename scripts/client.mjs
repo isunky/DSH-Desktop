@@ -97,9 +97,11 @@ async function packageClient(target, directory = false) {
   const builderArgs = ['tauri', 'build']
   if (directory) builderArgs.push('--no-bundle')
   else builderArgs.push('--bundles', target === 'win-x64' ? 'nsis' : 'dmg')
+  const releaseRoot = join(ROOT, 'src-tauri', 'target', 'release')
+  const bundleDirectory = join(releaseRoot, 'bundle', target === 'win-x64' ? 'nsis' : 'dmg')
+  if (!directory) await rm(bundleDirectory, { recursive: true, force: true })
   await run('cargo', builderArgs)
 
-  const releaseRoot = join(ROOT, 'src-tauri', 'target', 'release')
   const packageJson = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
   const version = packageJson.version
   const executableName = process.platform === 'win32' ? 'deepseek-harness.exe' : 'deepseek-harness'
@@ -109,10 +111,12 @@ async function packageClient(target, directory = false) {
     const resources = join(releaseRoot, 'client')
     await cp(resources, join(outputDirectory, 'client'), { recursive: true })
   } else {
-    const bundleDirectory = join(releaseRoot, 'bundle', target === 'win-x64' ? 'nsis' : 'dmg')
     const extension = target === 'win-x64' ? '.exe' : '.dmg'
-    const candidates = (await readdir(bundleDirectory)).filter(name => name.endsWith(extension))
-    if (candidates.length === 0) fail(`Tauri did not produce a ${extension} installer in ${bundleDirectory}`)
+    const candidates = (await readdir(bundleDirectory))
+      .filter(name => name.endsWith(extension) && name.includes(version))
+    if (candidates.length !== 1) {
+      fail(`expected exactly one ${extension} installer for version ${version} in ${bundleDirectory}, found ${candidates.length}`)
+    }
     const source = join(bundleDirectory, candidates[0])
     const name = target === 'win-x64'
       ? `DeepSeek-Harness-${version}-win-x64.exe`

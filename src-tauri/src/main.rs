@@ -72,6 +72,8 @@ struct CoreChannel {
     dist_tag: String,
     #[serde(default)]
     minimum_core_version: Option<String>,
+    #[serde(default)]
+    auto_update: bool,
 }
 
 struct NodeTarget {
@@ -1015,11 +1017,42 @@ fn spawn_managed(
     Ok(output)
 }
 
-fn wait_process(state: &AppState, kind: ProcessKind) -> Result<ExitStatus, String> {
+fn wait_process(
+    state: &AppState,
+    kind: ProcessKind,
+    output: &Arc<Mutex<String>>,
+    timeout: Duration,
+    idle_timeout: Duration,
+) -> Result<ExitStatus, String> {
+    let started = Instant::now();
+    let mut last_output_len = 0;
+    let mut last_output_at = started;
     loop {
-        check_cancelled(state)?;
+        if let Err(error) = check_cancelled(state) {
+            stop_process(state, kind);
+            return Err(error);
+        }
         if let Some(status) = poll_process(state, kind)? {
             return Ok(status);
+        }
+        let output_len = output.lock().map(|text| text.len()).unwrap_or(0);
+        if output_len != last_output_len {
+            last_output_len = output_len;
+            last_output_at = Instant::now();
+        }
+        if started.elapsed() >= timeout {
+            stop_process(state, kind);
+            return Err(fail(format!(
+                "子进程超过 {} 分钟仍未完成，已自动停止。",
+                timeout.as_secs() / 60
+            )));
+        }
+        if last_output_at.elapsed() >= idle_timeout {
+            stop_process(state, kind);
+            return Err(fail(format!(
+                "子进程超过 {} 秒没有输出，已自动停止。",
+                idle_timeout.as_secs()
+            )));
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -1080,7 +1113,13 @@ fn run_manager(
         .env("DSH_CLIENT_PACKAGE_MANAGER", "npm")
         .env("DSH_CLIENT_NPM_CLI", &node.npm_cli);
     let output = spawn_managed(state, ProcessKind::Manager, command)?;
-    let status = wait_process(state, ProcessKind::Manager)?;
+    let status = wait_process(
+        state,
+        ProcessKind::Manager,
+        &output,
+        Duration::from_secs(5 * 60),
+        Duration::from_secs(90),
+    )?;
     if !status.success() {
         let diagnostics = output.lock().map(|text| text.clone()).unwrap_or_default();
         let diagnostics = diagnostics.trim();
@@ -1099,17 +1138,18 @@ fn run_manager(
     Ok(())
 }
 
-fn update_external_core(
+fn install_external_core_version(
     app: &AppHandle,
     state: &AppState,
     node: &NodeRuntime,
     channel: &CoreChannel,
     version: &str,
+    action: &str,
 ) -> Result<(NodeRuntime, CoreRuntime), String> {
     emit_state(
         app,
-        "正在更新本机 DSH",
-        &format!("正在使用本机 npm 更新官方 DSH 至 {version}…"),
+        action,
+        &format!("正在使用本机 npm 安装官方 DSH {version}…"),
         Some(45),
     );
     let mut command = Command::new(&node.executable);
@@ -1119,19 +1159,64 @@ fn update_external_core(
         .args(["install", "--global", "--no-audit", "--no-fund"])
         .arg(format!("{}@{version}", channel.package_name))
         .arg(format!("--registry={}", channel.registry));
-    let _output = spawn_managed(state, ProcessKind::Manager, command)?;
-    let status = wait_process(state, ProcessKind::Manager)?;
+    let output = spawn_managed(state, ProcessKind::Manager, command)?;
+    let status = wait_process(
+        state,
+        ProcessKind::Manager,
+        &output,
+        Duration::from_secs(5 * 60),
+        Duration::from_secs(90),
+    )?;
     if !status.success() {
+        let diagnostics = output.lock().map(|text| text.clone()).unwrap_or_default();
+        let diagnostics = diagnostics.trim();
         return Err(fail(format!(
-            "更新本机 DSH 失败，npm 子进程退出码：{}。请检查全局 npm 目录权限。",
+            "本机 DSH 安装失败，npm 子进程退出码：{}。请检查全局 npm 目录权限。{}",
             status
                 .code()
-                .map_or_else(|| "unknown".to_owned(), |code| code.to_string())
+                .map_or_else(|| "unknown".to_owned(), |code| code.to_string()),
+            if diagnostics.is_empty() {
+                "".to_owned()
+            } else {
+                format!("\n\n诊断输出：\n{diagnostics}")
+            }
         )));
     }
-    discover_external_for_node(node, channel).ok_or_else(|| {
-        fail("DSH 更新命令已完成，但未能重新验证全局官方 DSH，请检查 npm 全局目录。")
-    })
+    let runtime = discover_external_for_node(node, channel).ok_or_else(|| {
+        fail("DSH 安装命令已完成，但未能重新验证全局官方 DSH，请检查 npm 全局目录。")
+    })?;
+    if runtime.1.version != version {
+        return Err(fail(format!(
+            "本机 DSH 安装完成，但实际版本为 {}，预期为 {version}。",
+            runtime.1.version
+        )));
+    }
+    Ok(runtime)
+}
+
+fn update_external_core(
+    app: &AppHandle,
+    state: &AppState,
+    node: &NodeRuntime,
+    channel: &CoreChannel,
+    version: &str,
+) -> Result<(NodeRuntime, CoreRuntime), String> {
+    install_external_core_version(app, state, node, channel, version, "正在更新本机 DSH")
+}
+
+fn restore_external_core(
+    app: &AppHandle,
+    state: &AppState,
+    node: &NodeRuntime,
+    channel: &CoreChannel,
+    version: &str,
+) -> Result<(NodeRuntime, CoreRuntime), String> {
+    if let Some(runtime) = discover_external_for_node(node, channel) {
+        if runtime.1.version == version {
+            return Ok(runtime);
+        }
+    }
+    install_external_core_version(app, state, node, channel, version, "正在恢复旧版 DSH")
 }
 
 fn read_current_core(core_root: &Path) -> Result<CurrentCore, String> {
@@ -1406,45 +1491,59 @@ fn start_client_blocking(app: &AppHandle, state: &AppState) -> Result<String, St
             ),
             Some(40),
         );
-        let (node, core) = match run_manager(app, state, &node, &user_root) {
-            Ok(()) => (node.clone(), managed_core_runtime(&user_root, &channel)?),
-            Err(primary_error) => {
-                check_cancelled(state)?;
-                if let Ok(core) = managed_core_runtime(&user_root, &channel) {
-                    emit_state(
-                        app,
-                        "已切换到本地缓存",
-                        &format!(
-                            "官方核心检查失败，已使用已缓存的 DSH {} 启动。",
-                            core.version
-                        ),
-                        Some(50),
-                    );
-                    (node.clone(), core)
-                } else {
-                    let system_node = discover_system_node();
-                    let using_system_node = system_node
-                        .as_ref()
-                        .map(|system| system.executable == node.executable)
-                        .unwrap_or(false);
-                    if !using_system_node {
-                        return Err(primary_error);
-                    }
-                    emit_state(
-                        app,
-                        "正在切换备用运行时",
-                        "本机 Node.js 的核心安装失败，正在改用客户端托管 Node.js 自动修复…",
-                        Some(18),
-                    );
-                    let fallback_node = ensure_managed_node(app, state)?;
-                    run_manager(app, state, &fallback_node, &user_root).map_err(|fallback_error| {
+        let (node, core) = match managed_core_runtime(&user_root, &channel) {
+            Ok(core) if !channel.auto_update => {
+                emit_state(
+                    app,
+                    "已使用本地 DSH",
+                    &format!(
+                        "已找到本地缓存的 DSH {}，按当前更新策略直接启动。",
+                        core.version
+                    ),
+                    Some(35),
+                );
+                (node.clone(), core)
+            }
+            _ => match run_manager(app, state, &node, &user_root) {
+                Ok(()) => (node.clone(), managed_core_runtime(&user_root, &channel)?),
+                Err(primary_error) => {
+                    check_cancelled(state)?;
+                    if let Ok(core) = managed_core_runtime(&user_root, &channel) {
+                        emit_state(
+                            app,
+                            "已切换到本地缓存",
+                            &format!(
+                                "官方核心检查失败，已使用已缓存的 DSH {} 启动。",
+                                core.version
+                            ),
+                            Some(50),
+                        );
+                        (node.clone(), core)
+                    } else {
+                        let system_node = discover_system_node();
+                        let using_system_node = system_node
+                            .as_ref()
+                            .map(|system| system.executable == node.executable)
+                            .unwrap_or(false);
+                        if !using_system_node {
+                            return Err(primary_error);
+                        }
+                        emit_state(
+                            app,
+                            "正在切换备用运行时",
+                            "本机 Node.js 的核心安装失败，正在改用客户端托管 Node.js 自动修复…",
+                            Some(18),
+                        );
+                        let fallback_node = ensure_managed_node(app, state)?;
+                        run_manager(app, state, &fallback_node, &user_root).map_err(|fallback_error| {
                         fail(format!(
                             "自动修复失败。\n本机 Node.js：{primary_error}\n客户端托管 Node.js：{fallback_error}"
                         ))
                     })?;
-                    (fallback_node, managed_core_runtime(&user_root, &channel)?)
+                        (fallback_node, managed_core_runtime(&user_root, &channel)?)
+                    }
                 }
-            }
+            },
         };
         let (_version, url) = start_core_with_recovery(app, state, &node, &core, &user_root)?;
         Ok(url)
@@ -1562,6 +1661,43 @@ fn read_channel(app: &AppHandle) -> Result<CoreChannel, String> {
     serde_json::from_slice(&bytes).map_err(|error| fail(format!("核心渠道配置格式错误：{error}")))
 }
 
+fn restart_core_after_update_failure(
+    app: &AppHandle,
+    state: &AppState,
+    node: &NodeRuntime,
+    core: &CoreRuntime,
+    user_root: &Path,
+    reason: &str,
+) -> Result<String, String> {
+    emit_state(
+        app,
+        "正在恢复 DSH",
+        &format!("核心更新未完成，正在恢复 DSH {}…", core.version),
+        Some(70),
+    );
+    match start_core(app, state, node, core, user_root) {
+        Ok((version, url)) => {
+            navigate_to_core_window(app, &url)?;
+            Ok(format!(
+                "DSH 核心更新失败，已恢复原版本 {version}。\n{reason}"
+            ))
+        }
+        Err(restart_error) => Err(format!(
+            "DSH 核心更新失败，且恢复原版本失败。\n更新错误：{reason}\n恢复错误：{restart_error}"
+        )),
+    }
+}
+
+fn restore_managed_core(
+    user_root: &Path,
+    snapshot: &[u8],
+    channel: &CoreChannel,
+) -> Result<CoreRuntime, String> {
+    fs::write(user_root.join("core").join("current.json"), snapshot)
+        .map_err(|error| fail(format!("恢复 DSH 核心版本记录失败：{error}")))?;
+    managed_core_runtime(user_root, channel)
+}
+
 fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<String, String> {
     let channel = read_channel(app)?;
     if channel.package_name != "@deepseek-ai/dsh" || !channel.registry.starts_with("https://") {
@@ -1604,7 +1740,7 @@ fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<Strin
     let accepted = app
         .dialog()
         .message(format!(
-            "发现 DSH 核心更新：{} → {}\n来源：{}\n\n官方仓库：github.com/deepseek-ai/deepseek-harness\n更新前会先停止当前本地 DSH 服务。",
+            "发现 DSH 核心更新：{} → {}\n来源：{}\n\n官方仓库：github.com/deepseek-ai/deepseek-harness\n更新失败时会自动恢复当前版本。",
             current_version, available, source
         ))
         .title("发现 DSH 核心更新")
@@ -1614,21 +1750,103 @@ fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<Strin
     if !accepted {
         return Ok("已取消更新。".to_owned());
     }
-    stop_process(state, ProcessKind::Core);
-    let (node, core) = if let Some((node, _)) = external {
-        let updated = update_external_core(app, state, &node, &channel, available)?;
-        write_external_binding(&user_root, &updated.0, &updated.1)?;
-        updated
+
+    let managed_snapshot = if external.is_none() {
+        Some(
+            fs::read(user_root.join("core").join("current.json"))
+                .map_err(|error| fail(format!("读取当前 DSH 版本记录失败：{error}")))?,
+        )
     } else {
-        let node = ensure_node(app, state)?;
-        run_manager(app, state, &node, &user_root)?;
-        let core = managed_core_runtime(&user_root, &channel)?;
-        clear_external_binding(&user_root);
-        (node, core)
+        None
     };
-    let (version, url) = start_core(app, state, &node, &core, &user_root)?;
-    navigate_to_core_window(app, &url)?;
-    Ok(format!("DSH 核心已更新至 {version}"))
+    let managed_node = if external.is_none() {
+        Some(ensure_node(app, state)?)
+    } else {
+        None
+    };
+    stop_process(state, ProcessKind::Core);
+
+    let updated = if let Some((node, _)) = external.as_ref() {
+        update_external_core(app, state, node, &channel, available).and_then(|updated| {
+            write_external_binding(&user_root, &updated.0, &updated.1)?;
+            Ok(updated)
+        })
+    } else {
+        let node = managed_node
+            .as_ref()
+            .ok_or_else(|| fail("缺少本机 DSH 运行时"))?;
+        run_manager(app, state, node, &user_root)
+            .and_then(|()| Ok((node.clone(), managed_core_runtime(&user_root, &channel)?)))
+    };
+
+    let (node, core) = match updated {
+        Ok(updated) => updated,
+        Err(update_error) => {
+            let restored = if let Some((old_node, _)) = external.as_ref() {
+                restore_external_core(app, state, old_node, &channel, &current_version)
+            } else {
+                let old_node = managed_node
+                    .as_ref()
+                    .ok_or_else(|| fail("缺少用于恢复的 Node.js 运行时"))?;
+                let snapshot = managed_snapshot
+                    .as_deref()
+                    .ok_or_else(|| fail("缺少 DSH 核心版本快照"))?;
+                restore_managed_core(&user_root, snapshot, &channel)
+                    .map(|core| (old_node.clone(), core))
+            };
+            match restored {
+                Ok((old_node, old_core)) => {
+                    return restart_core_after_update_failure(
+                        app,
+                        state,
+                        &old_node,
+                        &old_core,
+                        &user_root,
+                        &update_error,
+                    )
+                }
+                Err(restore_error) => {
+                    return Err(format!(
+                        "DSH 核心更新失败，自动恢复也失败。\n更新错误：{update_error}\n恢复错误：{restore_error}"
+                    ))
+                }
+            }
+        }
+    };
+
+    match start_core(app, state, &node, &core, &user_root) {
+        Ok((version, url)) => {
+            navigate_to_core_window(app, &url)?;
+            Ok(format!("DSH 核心已更新至 {version}"))
+        }
+        Err(start_error) => {
+            let restored = if let Some((old_node, _)) = external.as_ref() {
+                restore_external_core(app, state, old_node, &channel, &current_version)
+            } else {
+                let old_node = managed_node
+                    .as_ref()
+                    .ok_or_else(|| fail("缺少用于回滚的 Node.js 运行时"))?;
+                let snapshot = managed_snapshot
+                    .as_deref()
+                    .ok_or_else(|| fail("缺少 DSH 核心版本快照"))?;
+                restore_managed_core(&user_root, snapshot, &channel)
+                    .map(|old_core| (old_node.clone(), old_core))
+            };
+            match restored {
+                Ok((old_node, old_core)) => restart_core_after_update_failure(
+                    app,
+                    state,
+                    &old_node,
+                    &old_core,
+                    &user_root,
+                    &format!("新版本启动失败：{start_error}"),
+                ),
+                Err(restore_error) => Err(format!(
+                    "新 DSH 版本启动失败，自动回滚也失败。\n启动错误：{start_error}\n回滚错误：{restore_error}"
+                )),
+            }
+        }
+    }
 }
 
 fn launch_core_update(app: &AppHandle, state: &AppState) {
@@ -1855,6 +2073,7 @@ mod tests {
             registry: "https://registry.npmjs.org".to_owned(),
             dist_tag: "latest".to_owned(),
             minimum_core_version: minimum.map(str::to_owned),
+            auto_update: false,
         }
     }
 

@@ -5,6 +5,58 @@ const settingsStatus = document.querySelector('#settings-status')
 const maximize = header.querySelector('[data-action="maximize"]')
 const notice = document.querySelector('#shell-notice')
 let noticeTimer
+const coreUpdateButton = dialog.querySelector('[data-setting-action="core-update"]')
+const coreUpdateLabel = document.querySelector('#core-update-label')
+const coreFeedback = document.querySelector('#core-update-feedback')
+const coreStatus = document.querySelector('#core-update-status')
+const coreDetails = document.querySelector('#core-update-details')
+let coreUpdateBusy = false
+
+function showCoreFeedback(message, busy = false) {
+  coreUpdateBusy = busy
+  coreUpdateButton.disabled = busy
+  coreUpdateButton.setAttribute('aria-busy', String(busy))
+  coreUpdateLabel.textContent = busy ? '正在处理…' : '检查核心更新'
+  coreFeedback.hidden = false
+  const [summary, ...details] = String(message).split('\n')
+  coreStatus.textContent = summary
+  document.querySelector('#core-update-diagnostics').textContent = details.join('\n').trim()
+  coreDetails.hidden = !details.join('').trim()
+  coreDetails.open = false
+}
+
+async function refreshSettingsInfo() {
+  const info = await window.__TAURI__.core.invoke('settings_info')
+  document.querySelector('#settings-core-version').textContent = info.core
+  document.querySelector('#settings-client-version').textContent = `v${info.client}`
+  document.querySelector('#settings-runtime').textContent = info.runtime
+}
+
+// Register before dispatching so even an immediate rejection is displayed locally.
+const coreListenersReady = window.__TAURI__ ? Promise.all([
+  window.__TAURI__.event.listen('core-update-result', event => {
+    showCoreFeedback(event.payload)
+    void refreshSettingsInfo().catch(() => {})
+  }),
+  window.__TAURI__.event.listen('startup-state', event => {
+    if (!coreUpdateBusy) return
+    coreStatus.textContent = event.payload.detail || event.payload.stage
+    coreUpdateLabel.textContent = event.payload.stage || '正在处理…'
+  }),
+]).then(() => null, error => error) : Promise.resolve('客户端接口不可用')
+
+async function checkCoreUpdate() {
+  if (coreUpdateBusy) return
+  showCoreFeedback('正在连接官方渠道，检查可用版本…', true)
+  coreUpdateLabel.textContent = '正在检查…'
+  try {
+    const listenerError = await coreListenersReady
+    if (listenerError) throw listenerError
+    await window.__TAURI__.core.invoke('shell_action', { action: 'core-update' })
+  } catch (error) {
+    showCoreFeedback(`检查未完成，请重试。\n${String(error)}`)
+  }
+}
 
 async function act(action) {
   try {
@@ -28,10 +80,7 @@ settings.addEventListener('click', async () => {
     await window.__TAURI__.core.invoke('shell_action', { action: 'settings-open' })
     dialog.showModal()
     settingsStatus.textContent = ''
-    const info = await window.__TAURI__.core.invoke('settings_info')
-    document.querySelector('#settings-core-version').textContent = info.core
-    document.querySelector('#settings-client-version').textContent = `v${info.client}`
-    document.querySelector('#settings-runtime').textContent = info.runtime
+    await refreshSettingsInfo()
   } catch (error) {
     settingsStatus.textContent = String(error)
     if (!dialog.open) await act('settings-close')
@@ -44,11 +93,11 @@ dialog.addEventListener('close', () => { void act('settings-close'); settings.fo
 dialog.addEventListener('click', event => {
   const button = event.target.closest('[data-setting-action]')
   if (!button) return
-  if (button.dataset.settingAction === 'core-update') settingsStatus.textContent = '正在检查核心更新…'
+  if (button.dataset.settingAction === 'core-update') {
+    void checkCoreUpdate()
+    return
+  }
   void act(button.dataset.settingAction)
-})
-if (window.__TAURI__) void window.__TAURI__.event.listen('core-update-result', event => {
-  settingsStatus.textContent = event.payload
 })
 header.addEventListener('click', event => {
   const button = event.target.closest('[data-action]')
