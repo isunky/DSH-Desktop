@@ -20,132 +20,49 @@ body { padding-top: 48px; }
 #shell-notice[hidden] { display: none; }
 #shell-notice { position: fixed; z-index: 20; top: 8px; left: 64px; max-width: 45vw; font-size: 12px; color: #b42318; background: white; }
 body.core-ready > main { display: none; }
-#settings-dialog { width: min(560px, calc(100vw - 40px)); max-height: calc(100vh - 110px); padding: 28px; border: 1px solid #e6e8ed; border-radius: 20px; color: #252936; background: #fff; color-scheme: light; box-shadow: 0 24px 90px #0004; }
-#settings-dialog::backdrop { background: #0d152866; backdrop-filter: blur(6px); }
-#settings-dialog[open] { animation: settings-in .18s ease-out; }
-.settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
-#settings-dialog h2 { margin: 0; font-size: 23px; }
-#settings-dialog h3 { margin: 0 0 8px; font-size: 15px; }
-#settings-dialog p { color: #687182; font-size: 13px; line-height: 1.65; margin: 8px 0; }
-#settings-dialog button { color: #414b64; border: 1px solid #dfe3ec; border-radius: 9px; background: #fff; }
-#settings-dialog button:hover { background: #f0f3ff; border-color: #b8c3fd; }
-#settings-dialog button:focus-visible, #settings-dialog summary:focus-visible { outline: 2px solid #4d6bfe; outline-offset: 3px; }
-#settings-close { font-size: 24px; line-height: 1; padding: 6px 10px; }
-.settings-card { background: #f8f9fc; border: 1px solid #edf0f5; border-radius: 13px; padding: 18px; margin-bottom: 12px; }
-.settings-card h3 span { color: #6674a3; font-size: 12px; font-weight: 500; margin-left: 8px; }
-.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-#settings-dialog .text-action { border-color: transparent; background: transparent; }
-.settings-about { padding: 14px 2px 0; }
-.settings-about summary { color: #687182; cursor: pointer; font-size: 12px; }
-#settings-runtime { white-space: pre-wrap; overflow-wrap: anywhere; }
-#settings-status { overflow-wrap: anywhere; }
 #settings-dialog {
-  width: min(540px, calc(100vw - 32px)); max-height: calc(100dvh - 80px);
+  width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 80px);
   padding: 24px; overflow-y: auto; overscroll-behavior: contain;
-  border-radius: 18px; border-color: #e5e8f0;
-  box-shadow: 0 24px 80px #0f172a33;
+  border: 1px solid #e5e7ec; border-radius: 16px;
+  background: #fff; color: #272b36; color-scheme: light;
+  box-shadow: 0 20px 64px #11182730;
 }
-.settings-heading { align-items: center; margin-bottom: 22px; }
-#settings-dialog h2 { font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
-#settings-dialog .settings-heading p { margin: 6px 0 0; font-size: 12px; }
-#settings-dialog #settings-close {
-  display: grid; place-items: center; width: 32px; height: 32px;
-  flex: 0 0 32px; padding: 0; border-color: transparent; background: #f4f5f8;
-}
+#settings-dialog::backdrop { background: #10182766; backdrop-filter: blur(4px); }
+#settings-dialog [hidden] { display: none !important; }
+.settings-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+#settings-dialog h2 { margin: 0; font-size: 18px; font-weight: 650; }
+#settings-dialog h3 { margin: 0; font-size: 14px; font-weight: 600; }
+#settings-dialog p { margin: 0; font-size: 12px; line-height: 1.65; color: #737987; overflow-wrap: anywhere; }
+#settings-dialog button { border: 1px solid #e0e3e9; border-radius: 7px; background: #fff; color: #414858; padding: 7px 10px; font-size: 12px; transition: background .15s; }
+#settings-dialog button:hover { background: #f3f4f8; border-color: #cdd2de; }
+#settings-dialog button:focus-visible, #settings-dialog summary:focus-visible { outline: 2px solid #6469e8; outline-offset: 3px; }
+#settings-dialog #settings-close { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border-color: transparent; background: transparent; }
+#settings-dialog #settings-close:hover { background: #f3f4f8; }
 #settings-close img { width: 16px; height: 16px; opacity: .65; }
-.settings-card { background: #fff; padding: 18px; border: 1px solid #e5e8ef; border-radius: 12px; }
-#settings-dialog .settings-card h3 { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; font-size: 14px; }
-.settings-card h3 span { margin: 0; padding: 3px 8px; border-radius: 6px; background: #f0f2ff; color: #5363bd; font-size: 11px; overflow-wrap: anywhere; }
-#settings-dialog .settings-card p { margin: 9px 0 0; font-size: 12px; }
-.settings-actions { align-items: center; justify-content: space-between; gap: 8px; margin-top: 16px; }
-#settings-dialog button { transition: background .15s, border-color .15s; }
-#settings-dialog .settings-actions button { min-height: 34px; font-size: 12px; padding: 7px 12px; }
-#settings-dialog button[data-setting-action="core-update"] { color: #fff; border-color: #5365eb; background: #5365eb; }
-#settings-dialog button[data-setting-action="core-update"]:hover { background: #4254d6; }
-#settings-dialog .text-action { color: #69758b; padding-right: 0; }
-.settings-about { margin-top: 22px; padding: 18px 0 0; border-top: 1px solid #edf0f5; }
-.settings-identity { display: flex; align-items: center; gap: 12px; }
-#settings-dialog .settings-identity h3 { margin: 0; font-size: 13px; }
-#settings-dialog .settings-identity p { margin: 3px 0 0; font-size: 11px; }
-.settings-about details { margin-top: 18px; border-radius: 8px; background: #f7f8fb; padding: 11px 12px; }
-.settings-about summary { font-size: 12px; color: #4e586e; }
-.settings-about summary span { margin-left: 8px; color: #8991a1; font-size: 11px; }
-#settings-dialog #settings-runtime { font-size: 11px; line-height: 1.8; margin: 12px 0 0; padding-top: 10px; border-top: 1px solid #e5e8ef; }
-#settings-dialog #settings-status:empty { display: none; }
-#settings-dialog #settings-status:not(:empty) { margin: 16px 0 0; padding: 10px 12px; background: #f0f3ff; color: #45568d; border-radius: 8px; font-size: 12px; white-space: pre-wrap; }
-@media (max-width: 480px) {
-  #settings-dialog { padding: 18px; }
-  .settings-card { padding: 14px; }
-  .settings-about summary span { display: none; }
-}
-@keyframes settings-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
-#core-update-feedback[hidden], #core-update-details[hidden] { display: none; }
-#core-update-feedback { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #eaf0ff; border-left: 3px solid #7382df; }
-#settings-dialog #core-update-status { margin: 0; color: #45558c; font-size: 12px; overflow-wrap: anywhere; }
-#core-update-details { margin-top: 8px; font-size: 11px; color: #586683; }
-#core-update-details summary { cursor: pointer; }
-#core-update-diagnostics { max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
-#settings-dialog button[aria-busy="true"] { cursor: wait; opacity: .8; }
-button[aria-busy="true"] img { animation: core-pulse 1s ease-in-out infinite alternate; }
-#client-update-feedback { margin-top: 12px; padding: 11px 12px; border-radius: 8px; background: #edf8f6; border-left: 3px solid #61b6a6; }
-#settings-dialog #client-update-status { margin: 0; color: #397468; font-size: 12px; overflow-wrap: anywhere; }
-.update-progress-track { height: 4px; margin-top: 10px; overflow: hidden; border-radius: 999px; background: #d7ebe6; }
-#client-update-progress { width: 0; height: 100%; border-radius: inherit; background: #4aa996; transition: width .25s ease; }
-.update-feedback-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 10px; }
-#client-update-feedback .update-feedback-actions button { min-height: 30px; padding: 5px 10px; font-size: 11px; }
-#client-update-download, #client-update-install { color: #fff; border-color: #429c8b; background: #429c8b; }
-#client-update-download:hover, #client-update-install:hover { background: #348777; }
-#client-update-details { margin-top: 9px; color: #4f776e; font-size: 11px; }
-#client-update-notes { max-height: 130px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
-#client-update-feedback[hidden] { display: none; }
-@keyframes core-pulse { to { opacity: .25; } }
-@media (prefers-reduced-motion: reduce) { button[aria-busy="true"] img { animation: none; } }
-#settings-dialog {
-  width: min(570px, calc(100vw - 32px)); padding: 28px;
-  background: radial-gradient(ellipse at 100% 0%, #e4eaff 0, transparent 45%), linear-gradient(160deg, #fafaff, #fff 55%);
-  border: 1px solid #ffffff; border-radius: 24px;
-  box-shadow: 0 32px 100px #10193240, 0 2px 8px #10193212;
-}
-#settings-dialog::backdrop { background: #101a326e; backdrop-filter: blur(9px); }
-.settings-heading { align-items: flex-start; margin-bottom: 26px; }
-.settings-kicker { display: flex; align-items: center; gap: 8px; color: #6469a0; font-size: 10px; font-weight: 650; letter-spacing: .12em; margin-bottom: 18px; }
-.settings-kicker img { width: 25px; height: 25px; }
-#settings-dialog h2 { font-size: 23px; line-height: 1.45; letter-spacing: -.04em; color: #222a46; }
-#settings-dialog .settings-heading p { margin-top: 7px; color: #717b93; }
-#settings-dialog #settings-close { border-radius: 50%; background: #ffffffa6; border: 1px solid #fff; }
-.settings-section-label { display: flex; justify-content: space-between; gap: 10px; margin: 0 2px 12px; color: #58617a; font-size: 11px; font-weight: 600; }
-.settings-section-label span { font-weight: 400; color: #7d859a; }
-.settings-card { padding: 20px; margin-bottom: 14px; border-radius: 16px; background: #ffffffdc; box-shadow: 0 4px 16px #273a6710; border-color: #e5e8f4; }
-.core-card { border-color: #d8dffb; background: linear-gradient(120deg, #fff, #f4f6ff); }
-.settings-card-top { display: flex; align-items: center; gap: 12px; }
-.settings-card-icon { width: 40px; height: 40px; display: grid; place-items: center; flex-shrink: 0; border-radius: 12px; background: #e9edff; color: #5865ca; }
-.settings-card-icon img { width: 21px; height: 21px; opacity: .72; }
-.desktop-card .settings-card-icon { background: #e9f3f5; }
-.settings-card-title { flex: 1; min-width: 0; }
-#settings-dialog .settings-card-title h3 { font-size: 14px; color: #2c3450; margin-bottom: 4px; }
-.settings-card-title > span { font-size: 11px; color: #7b8499; }
-.version-badge { max-width: 40%; overflow-wrap: anywhere; padding: 4px 9px; border-radius: 7px; background: #edf0fb; color: #55639c; font-size: 11px; font-variant-numeric: tabular-nums; }
-#settings-dialog .settings-card p { margin-top: 14px; color: #707b91; }
-.settings-actions { padding-top: 14px; margin-top: 14px; border-top: 1px solid #e7ebf5; }
-#settings-dialog .settings-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border-radius: 9px; }
-.settings-actions img { width: 14px; height: 14px; }
-#settings-dialog button[data-setting-action="core-update"] { background: linear-gradient(110deg, #5965e9, #7480f4); border-color: #6370ed; box-shadow: 0 3px 8px #5965e929; }
-button[data-setting-action="core-update"] img { filter: brightness(0) invert(1); }
-#settings-dialog button[data-setting-action="core-update"]:hover { background: #515ed9; }
-#settings-dialog button[data-setting-action="client-releases"] { background: #f5f7fc; border-color: #e0e5f0; }
-#settings-dialog .text-action:hover { background: transparent; color: #4c5bd1; border-color: transparent; }
-.settings-about { margin-top: 22px; border-top: 0; padding-top: 0; }
-.settings-identity { padding: 4px 2px; gap: 10px; }
-.settings-identity > img { padding: 5px; border-radius: 10px; background: #edf0ff; width: 36px; height: 36px; }
-.settings-about details { background: #eef1f780; border: 1px solid #e8ebf3; margin-top: 16px; border-radius: 10px; }
-#settings-dialog button:focus-visible { outline: 2px solid #6472eb; outline-offset: 3px; }
-@media (max-width: 480px) {
-  #settings-dialog { padding: 20px; border-radius: 18px; }
-  #settings-dialog h2 { font-size: 19px; }
-  .settings-card { padding: 15px; }
-  .settings-card-top { gap: 8px; }
-  .settings-section-label span { display: none; }
-  .settings-actions { justify-content: flex-start; }
-}
-@media (prefers-reduced-motion: reduce) { #settings-dialog[open] { animation: none; } }
-@media (prefers-reduced-motion: reduce) { #bar { animation: none !important; transition: none !important; } }
+.settings-card { padding: 18px 0; border-bottom: 1px solid #eceef2; }
+.settings-card-top { display: flex; align-items: baseline; gap: 10px; }
+.version-badge { color: #838998; font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.settings-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#settings-dialog .settings-actions button { display: inline-flex; align-items: center; gap: 6px; }
+.settings-actions img { width: 13px; height: 13px; opacity: .7; }
+#settings-dialog .text-action { padding: 6px 0; background: transparent; border-color: transparent; color: #787f8e; }
+#settings-dialog .text-action:hover { color: #555bd1; }
+#core-update-feedback, #client-update-feedback { margin-top: 10px; }
+#settings-dialog #core-update-status, #settings-dialog #client-update-status { font-size: 12px; color: #737987; }
+.update-progress-track { height: 3px; margin-top: 10px; overflow: hidden; border-radius: 3px; background: #eceef6; }
+#client-update-progress { width: 0; height: 100%; background: #6469e8; transition: width .2s; }
+.update-feedback-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.update-feedback-actions:has(button:not([hidden])) { margin-top: 10px; }
+#settings-dialog #client-update-download, #settings-dialog #client-update-install { background: #6065df; border-color: #6065df; color: white; }
+#settings-dialog #client-update-download:hover, #settings-dialog #client-update-install:hover { background: #5055ce; }
+#core-update-details, #client-update-details { margin-top: 8px; }
+#settings-dialog summary { cursor: pointer; color: #737987; font-size: 12px; }
+#core-update-diagnostics, #client-update-notes { max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; line-height: 1.65; color: #737987; }
+.settings-about { padding-top: 16px; }
+#settings-runtime { white-space: pre-wrap; padding-top: 10px; }
+#settings-dialog .settings-credit { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 22px; font-size: 11px; color: #9096a2; }
+#settings-status:empty { display: none; }
+#settings-dialog #settings-status:not(:empty) { margin-top: 12px; color: #b54747; }
+#settings-dialog button[aria-busy="true"] { cursor: wait; }
+@media (max-width: 380px) { #settings-dialog { padding: 18px; } }
+@media (prefers-reduced-motion: reduce) { #client-update-progress, #bar { animation: none !important; transition: none !important; } }

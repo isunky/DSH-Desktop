@@ -28,7 +28,7 @@ function showCoreFeedback(message, busy = false) {
   coreUpdateBusy = busy
   coreUpdateButton.disabled = busy
   coreUpdateButton.setAttribute('aria-busy', String(busy))
-  coreUpdateLabel.textContent = busy ? '正在处理…' : '检查核心更新'
+  coreUpdateLabel.textContent = busy ? '正在处理…' : '检查更新'
   coreFeedback.hidden = false
   const [summary, ...details] = String(message).split('\n')
   coreStatus.textContent = summary
@@ -97,7 +97,8 @@ function setClientUpdateBusy(busy, downloading = false) {
   clientUpdateButton.disabled = busy
   clientUpdateButton.setAttribute('aria-busy', String(busy))
   clientCancelButton.hidden = !downloading
-  if (!busy) clientUpdateLabel.textContent = '重新检查客户端更新'
+  clientProgress.parentElement.hidden = !downloading
+  clientUpdateLabel.textContent = busy ? (downloading ? '正在下载…' : '正在检查…') : '检查更新'
 }
 
 async function checkClientUpdate() {
@@ -115,16 +116,15 @@ async function checkClientUpdate() {
     const info = await window.__TAURI__.core.invoke('client_update_check')
     latestClientUpdate = info
     if (info.available) {
-      const size = info.assetName ? `（${info.assetName}）` : ''
       clientStatus.textContent = info.assetAvailable
-        ? `发现新版本 v${info.latest} ${size}`
+        ? `新版本 v${info.latest} 可用`
         : `发现新版本 v${info.latest}，但当前平台暂未提供安装包。`
       clientDownloadButton.textContent = `下载 v${info.latest}`
       clientDownloadButton.hidden = !info.assetAvailable
       clientNotes.textContent = info.notes || '此版本没有附加说明。'
       clientDetails.hidden = false
     } else {
-      clientStatus.textContent = `当前已是最新版本 v${info.current}`
+      clientStatus.textContent = '已是最新版本'
     }
   } catch (error) {
     clientStatus.textContent = `暂时无法检查客户端更新：${String(error)}`

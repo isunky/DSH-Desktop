@@ -68,13 +68,11 @@
     <div id="shell-notice" role="status" hidden></div>
     <dialog id="settings-dialog" aria-labelledby="settings-title">
       <div class="settings-heading">
-        <div><div class="settings-kicker"><img src="./icons/brand.svg" alt=""> DEEPSEEK HARNESS</div><h2 id="settings-title">让每一次探索，保持更新。</h2><p>管理你的核心、客户端与运行环境。</p></div>
+        <h2 id="settings-title">设置</h2>
         <button id="settings-close" aria-label="关闭设置" autofocus><img src="./icons/x.svg" alt=""></button>
       </div>
-      <div class="settings-section-label">版本与更新 <span>独立更新 · 来源可查</span></div>
       <section class="settings-card core-card">
-        <div class="settings-card-top"><div class="settings-card-icon"><img src="./icons/code.svg" alt=""></div><div class="settings-card-title"><h3>DSH 核心</h3><span>驱动你的 AI 工作空间</span></div><span class="version-badge" id="settings-core-version">正在读取…</span></div>
-        <p>从 DeepSeek 官方 npm 渠道获取，独立于客户端更新。</p>
+        <div class="settings-card-top"><h3>DSH 核心</h3><span class="version-badge" id="settings-core-version">正在读取…</span></div>
         <div class="settings-actions"><button data-setting-action="core-update" aria-describedby="core-update-status"><img src="./icons/download.svg" alt=""><span id="core-update-label">检查核心更新</span></button><button class="text-action" data-setting-action="upstream">官方 GitHub <img src="./icons/external-link.svg" alt=""></button></div>
         <div id="core-update-feedback" hidden>
           <p id="core-update-status" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -82,17 +80,16 @@
         </div>
       </section>
       <section class="settings-card desktop-card">
-        <div class="settings-card-top"><div class="settings-card-icon"><img src="./icons/panels-top-left.svg" alt=""></div><div class="settings-card-title"><h3>桌面客户端</h3><span>轻量、熟悉的桌面体验</span></div><span class="version-badge" id="settings-client-version">正在读取…</span></div>
-        <p>查看版本说明，下载适合你设备的最新安装包。</p>
+        <div class="settings-card-top"><h3>桌面客户端</h3><span class="version-badge" id="settings-client-version">正在读取…</span></div>
         <div class="settings-actions"><button data-setting-action="client-releases" aria-describedby="client-update-status"><img src="./icons/download.svg" alt=""><span id="client-update-label">检查客户端更新</span></button><button class="text-action" data-setting-action="client-repository">客户端 GitHub <img src="./icons/external-link.svg" alt=""></button></div>
         <div id="client-update-feedback" class="update-feedback" hidden>
           <p id="client-update-status" role="status" aria-live="polite" aria-atomic="true"></p>
-          <div class="update-progress-track"><div id="client-update-progress"></div></div>
+          <div class="update-progress-track" hidden><div id="client-update-progress"></div></div>
           <div class="update-feedback-actions"><button id="client-update-download" data-setting-action="client-download" hidden>下载新版本</button><button id="client-update-install" data-setting-action="client-install" hidden>打开安装包</button><button id="client-update-cancel" class="text-action" data-setting-action="client-cancel" hidden>取消下载</button></div>
           <details id="client-update-details" hidden><summary>查看版本说明</summary><pre id="client-update-notes"></pre></details>
         </div>
       </section>
-      <section class="settings-about"><div class="settings-identity"><img src="./icons/brand.svg" alt="" width="32" height="32"><div><h3>DeepSeek Harness</h3><p>独立桌面客户端 · 开发者 <strong>Sunky</strong></p></div></div><details><summary>运行环境 <span>查看本机运行时与核心路径</span></summary><p id="settings-runtime">正在读取…</p></details></section>
+      <section class="settings-about"><details><summary>运行环境</summary><p id="settings-runtime">正在读取…</p></details><p class="settings-credit">DeepSeek Harness <span>开发者 Sunky</span></p></section>
       <p id="settings-status" role="status" aria-live="polite"></p>
     </dialog>
     <main>
