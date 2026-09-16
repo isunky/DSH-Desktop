@@ -37,8 +37,11 @@ struct AppStateInner {
     cancelled: AtomicBool,
     startup_started: AtomicBool,
     update_in_progress: AtomicBool,
+    client_update_in_progress: AtomicBool,
+    client_update_cancelled: AtomicBool,
     settings_open: AtomicBool,
     processes: Mutex<ProcessTable>,
+    downloaded_client_update: Mutex<Option<PathBuf>>,
 }
 
 struct ProcessTable {
@@ -115,11 +118,14 @@ impl AppState {
                 cancelled: AtomicBool::new(false),
                 startup_started: AtomicBool::new(false),
                 update_in_progress: AtomicBool::new(false),
+                client_update_in_progress: AtomicBool::new(false),
+                client_update_cancelled: AtomicBool::new(false),
                 settings_open: AtomicBool::new(false),
                 processes: Mutex::new(ProcessTable {
                     manager: None,
                     core: None,
                 }),
+                downloaded_client_update: Mutex::new(None),
             }),
         }
     }
@@ -130,6 +136,9 @@ impl AppState {
 
     fn cancel_and_kill(&self) {
         self.inner.cancelled.store(true, Ordering::SeqCst);
+        self.inner
+            .client_update_cancelled
+            .store(true, Ordering::SeqCst);
         kill_process(self, ProcessKind::Manager);
         kill_process(self, ProcessKind::Core);
     }
@@ -1643,8 +1652,9 @@ fn show_about(app: &AppHandle) {
         .get("description")
         .and_then(Value::as_str)
         .unwrap_or("DeepSeek Harness 独立桌面客户端");
+    let client_version = app.package_info().version.to_string();
     let message = format!(
-        "{description}\n\n桌面客户端 v0.1.0\nDSH 核心 {core}\n客户端开发者 · {developer}\n\n{runtime}",
+        "{description}\n\n桌面客户端 v{client_version}\nDSH 核心 {core}\n客户端开发者 · {developer}\n\n{runtime}",
         core = current_core_version(app),
         runtime = current_runtime_source(app)
     );
@@ -1653,6 +1663,231 @@ fn show_about(app: &AppHandle) {
         .title("关于与更新")
         .kind(MessageDialogKind::Info)
         .blocking_show();
+}
+
+fn client_repository() -> Result<String, String> {
+    let info: Value = serde_json::from_str(CLIENT_INFO_JSON)
+        .map_err(|error| fail(format!("客户端信息格式错误：{error}")))?;
+    info.get("clientRepository")
+        .and_then(Value::as_str)
+        .filter(|repository| *repository == "isunky/DSH-Desktop")
+        .map(str::to_owned)
+        .ok_or_else(|| fail("客户端更新仓库配置无效"))
+}
+
+fn client_asset_marker() -> Option<&'static str> {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        return Some("-win-x64.exe");
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        return Some("-mac-arm64.dmg");
+    }
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        return Some("-mac-x64.dmg");
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+fn valid_client_asset_name(name: &str, marker: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
+        && name.ends_with(marker)
+}
+
+fn client_update_info(app: &AppHandle) -> Result<Value, String> {
+    let current = Version::parse(&app.package_info().version.to_string())
+        .map_err(|error| fail(format!("客户端版本格式错误：{error}")))?;
+    let repository = client_repository()?;
+    let release_url = format!("https://api.github.com/repos/{repository}/releases/latest");
+    let release: Value = http_client(Duration::from_secs(15), false)?
+        .get(&release_url)
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .map_err(|error| fail(format!("读取客户端版本失败：{error}")))?
+        .json()
+        .map_err(|error| fail(format!("解析客户端版本失败：{error}")))?;
+    let tag = release
+        .get("tag_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| fail("GitHub Release 缺少版本标签"))?;
+    let latest_text = tag.trim_start_matches('v');
+    let latest = Version::parse(latest_text)
+        .map_err(|error| fail(format!("GitHub Release 版本格式错误：{error}")))?;
+    let release_page = release
+        .get("html_url")
+        .and_then(Value::as_str)
+        .filter(|url| url.starts_with("https://github.com/isunky/DSH-Desktop/releases/"))
+        .ok_or_else(|| fail("GitHub Release 地址无效"))?;
+    let asset_marker = client_asset_marker();
+    let asset = asset_marker.and_then(|marker| {
+        release
+            .get("assets")
+            .and_then(Value::as_array)
+            .and_then(|assets| {
+                assets.iter().find(|asset| {
+                    asset
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .map(|name| valid_client_asset_name(name, marker))
+                        .unwrap_or(false)
+                })
+            })
+    });
+    let download_url = asset
+        .and_then(|asset| asset.get("browser_download_url"))
+        .and_then(Value::as_str)
+        .filter(|url| url.starts_with("https://github.com/isunky/DSH-Desktop/releases/download/"));
+    let asset_name = asset
+        .and_then(|item| item.get("name"))
+        .and_then(Value::as_str);
+    let notes = release
+        .get("body")
+        .and_then(Value::as_str)
+        .map(|body| body.chars().take(4000).collect::<String>())
+        .unwrap_or_default();
+    let available = latest > current;
+    Ok(serde_json::json!({
+        "current": current.to_string(),
+        "latest": latest.to_string(),
+        "available": available,
+        "releaseUrl": release_page,
+        "downloadUrl": download_url,
+        "assetName": asset_name,
+        "assetAvailable": asset_name.is_some() && download_url.is_some(),
+        "publishedAt": release.get("published_at").and_then(Value::as_str),
+        "notes": notes,
+    }))
+}
+
+fn download_client_update(app: &AppHandle, state: &AppState) -> Result<Value, String> {
+    let info = client_update_info(app)?;
+    if !info
+        .get("available")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Err(fail("当前客户端已经是最新版本"));
+    }
+    let marker = client_asset_marker().ok_or_else(|| fail("当前平台暂不支持客户端更新"))?;
+    let asset_name = info
+        .get("assetName")
+        .and_then(Value::as_str)
+        .filter(|name| valid_client_asset_name(name, marker))
+        .ok_or_else(|| fail("当前平台的客户端安装包尚未发布"))?;
+    let download_url = info
+        .get("downloadUrl")
+        .and_then(Value::as_str)
+        .filter(|url| url.starts_with("https://github.com/isunky/DSH-Desktop/releases/download/"))
+        .ok_or_else(|| fail("客户端安装包下载地址无效"))?;
+    let updates_root = user_data_root(app)?.join("updates");
+    fs::create_dir_all(&updates_root)
+        .map_err(|error| fail(format!("无法创建客户端更新目录：{error}")))?;
+    let destination = updates_root.join(asset_name);
+    let temporary = updates_root.join(format!(".{asset_name}.part"));
+    let _ = fs::remove_file(&temporary);
+    let response = http_client(Duration::from_secs(300), false)?
+        .get(download_url)
+        .send()
+        .map_err(|error| fail(format!("下载客户端更新失败：{error}")))?;
+    if !response.status().is_success() {
+        return Err(fail(format!(
+            "下载客户端更新失败：HTTP {}",
+            response.status()
+        )));
+    }
+    let total = response.content_length();
+    let mut response = response;
+    let mut file = File::create(&temporary)
+        .map_err(|error| fail(format!("无法创建客户端更新临时文件：{error}")))?;
+    let mut buffer = [0_u8; 128 * 1024];
+    let mut downloaded = 0_u64;
+    let mut last_reported = 0_u64;
+    loop {
+        if state.inner.client_update_cancelled.load(Ordering::SeqCst) {
+            let _ = fs::remove_file(&temporary);
+            return Err(fail("客户端更新下载已取消"));
+        }
+        let count = response
+            .read(&mut buffer)
+            .map_err(|error| fail(format!("读取客户端更新失败：{error}")))?;
+        if count == 0 {
+            break;
+        }
+        file.write_all(&buffer[..count])
+            .map_err(|error| fail(format!("保存客户端更新失败：{error}")))?;
+        downloaded += count as u64;
+        if downloaded.saturating_sub(last_reported) >= 256 * 1024 {
+            last_reported = downloaded;
+            let progress = total
+                .filter(|size| *size > 0)
+                .map(|size| ((downloaded as f64 / size as f64).clamp(0.0, 1.0) * 100.0) as u8);
+            let _ = app.emit(
+                "client-update-progress",
+                serde_json::json!({
+                    "stage": "downloading",
+                    "progress": progress,
+                    "downloaded": downloaded,
+                    "total": total,
+                    "version": info.get("latest"),
+                }),
+            );
+        }
+    }
+    file.flush()
+        .map_err(|error| fail(format!("保存客户端更新失败：{error}")))?;
+    let _ = fs::remove_file(&destination);
+    fs::rename(&temporary, &destination)
+        .map_err(|error| fail(format!("完成客户端更新下载失败：{error}")))?;
+    if let Ok(mut downloaded_update) = state.inner.downloaded_client_update.lock() {
+        *downloaded_update = Some(destination.clone());
+    }
+    let _ = app.emit(
+        "client-update-progress",
+        serde_json::json!({
+            "stage": "ready",
+            "progress": 100,
+            "downloaded": downloaded,
+            "total": total,
+            "version": info.get("latest"),
+        }),
+    );
+    Ok(serde_json::json!({
+        "version": info.get("latest"),
+        "assetName": asset_name,
+        "path": destination.display().to_string(),
+    }))
+}
+
+fn launch_downloaded_client_update(app: &AppHandle, path: &Path) -> Result<(), String> {
+    if !path.is_file() || client_asset_marker().is_none() {
+        return Err(fail("客户端更新文件不存在或当前平台不支持安装"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new(path);
+        command.creation_flags(0x08000000);
+        command
+            .spawn()
+            .map_err(|error| fail(format!("启动客户端安装器失败：{error}")))?;
+        app.exit(0);
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(path)
+            .spawn()
+            .map_err(|error| fail(format!("打开客户端安装包失败：{error}")))?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err(fail("当前平台暂不支持客户端安装"))
 }
 
 fn read_channel(app: &AppHandle) -> Result<CoreChannel, String> {
@@ -1892,6 +2127,81 @@ async fn settings_info(app: AppHandle, webview: tauri::Webview) -> Result<Value,
 }
 
 #[tauri::command]
+async fn client_update_check(app: AppHandle, webview: tauri::Webview) -> Result<Value, String> {
+    if webview.label() != "main" {
+        return Err("无权限".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || client_update_info(&app))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn client_update_download(
+    app: AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if webview.label() != "main" {
+        return Err("无权限".into());
+    }
+    let state = state.inner().clone();
+    if state
+        .inner
+        .client_update_in_progress
+        .swap(true, Ordering::SeqCst)
+    {
+        return Err(fail("客户端更新下载正在进行中"));
+    }
+    state
+        .inner
+        .client_update_cancelled
+        .store(false, Ordering::SeqCst);
+    let result = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        let state = state.clone();
+        move || download_client_update(&app, &state)
+    })
+    .await;
+    state
+        .inner
+        .client_update_in_progress
+        .store(false, Ordering::SeqCst);
+    result.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn client_update_cancel(webview: tauri::Webview, state: State<'_, AppState>) -> Result<(), String> {
+    if webview.label() != "main" {
+        return Err("无权限".into());
+    }
+    state
+        .inner
+        .client_update_cancelled
+        .store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+fn client_update_install(
+    app: AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if webview.label() != "main" {
+        return Err("无权限".into());
+    }
+    let path = state
+        .inner
+        .downloaded_client_update
+        .lock()
+        .map_err(|_| fail("无法读取客户端更新文件"))?
+        .clone()
+        .ok_or_else(|| fail("请先下载客户端更新"))?;
+    launch_downloaded_client_update(&app, &path)
+}
+
+#[tauri::command]
 async fn shell_action(
     app: AppHandle,
     webview: tauri::Webview,
@@ -1920,13 +2230,6 @@ async fn shell_action(
                 core.show().map_err(|e| e.to_string())?;
             }
         }
-        "client-releases" => app
-            .opener()
-            .open_url(
-                "https://github.com/isunky/DSH-Desktop/releases",
-                None::<&str>,
-            )
-            .map_err(|e| e.to_string())?,
         "minimize" => window.minimize().map_err(|e| e.to_string())?,
         "maximize" => {
             if window.is_maximized().map_err(|e| e.to_string())? {
@@ -2018,7 +2321,11 @@ fn main() {
             reset_startup,
             navigate_to_core,
             shell_action,
-            settings_info
+            settings_info,
+            client_update_check,
+            client_update_download,
+            client_update_cancel,
+            client_update_install
         ])
         .setup(|app| {
             let _ = app.remove_menu();

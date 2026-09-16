@@ -87,6 +87,17 @@ body.core-ready > main { display: none; }
 #core-update-diagnostics { max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
 #settings-dialog button[aria-busy="true"] { cursor: wait; opacity: .8; }
 button[aria-busy="true"] img { animation: core-pulse 1s ease-in-out infinite alternate; }
+#client-update-feedback { margin-top: 12px; padding: 11px 12px; border-radius: 8px; background: #edf8f6; border-left: 3px solid #61b6a6; }
+#settings-dialog #client-update-status { margin: 0; color: #397468; font-size: 12px; overflow-wrap: anywhere; }
+.update-progress-track { height: 4px; margin-top: 10px; overflow: hidden; border-radius: 999px; background: #d7ebe6; }
+#client-update-progress { width: 0; height: 100%; border-radius: inherit; background: #4aa996; transition: width .25s ease; }
+.update-feedback-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 10px; }
+#client-update-feedback .update-feedback-actions button { min-height: 30px; padding: 5px 10px; font-size: 11px; }
+#client-update-download, #client-update-install { color: #fff; border-color: #429c8b; background: #429c8b; }
+#client-update-download:hover, #client-update-install:hover { background: #348777; }
+#client-update-details { margin-top: 9px; color: #4f776e; font-size: 11px; }
+#client-update-notes { max-height: 130px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
+#client-update-feedback[hidden] { display: none; }
 @keyframes core-pulse { to { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { button[aria-busy="true"] img { animation: none; } }
 #settings-dialog {
