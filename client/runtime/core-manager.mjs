@@ -31,23 +31,48 @@ function installedEntryPath(directory) {
   return join(directory, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 }
 
-function versionParts(version) {
-  return String(version).split(/[.-]/u).map(part => /^\d+$/u.test(part) ? Number(part) : part)
+function parseVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.exec(String(version))
+  if (!match || match.slice(1, 4).some(part => part.length > 1 && part.startsWith('0'))) return undefined
+  const prerelease = match[4]?.split('.') ?? []
+  if (prerelease.some(part => /^\d+$/u.test(part) && part.length > 1 && part.startsWith('0'))) return undefined
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: prerelease.map(part => /^\d+$/u.test(part) ? Number(part) : part),
+  }
 }
 
 function compareVersions(left, right) {
-  const a = versionParts(left)
-  const b = versionParts(right)
-  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-    const av = a[index] ?? 0
-    const bv = b[index] ?? 0
+  const a = parseVersion(left)
+  const b = parseVersion(right)
+  if (!a || !b) return undefined
+  for (const key of ['major', 'minor', 'patch']) {
+    if (a[key] !== b[key]) return a[key] - b[key]
+  }
+  if (a.prerelease.length === 0 && b.prerelease.length === 0) return 0
+  if (a.prerelease.length === 0) return 1
+  if (b.prerelease.length === 0) return -1
+  for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index += 1) {
+    const av = a.prerelease[index]
+    const bv = b.prerelease[index]
+    if (av === undefined) return -1
+    if (bv === undefined) return 1
     if (av === bv) continue
     if (typeof av === 'number' && typeof bv === 'number') return av - bv
-    if (typeof av === 'number') return 1
-    if (typeof bv === 'number') return -1
-    return String(av).localeCompare(String(bv))
+    if (typeof av === 'number') return -1
+    if (typeof bv === 'number') return 1
+    return av < bv ? -1 : 1
   }
   return 0
+}
+
+function isCompatibleVersion(version, minimum) {
+  if (!parseVersion(version)) return false
+  if (!minimum) return true
+  const comparison = compareVersions(version, minimum)
+  return comparison !== undefined && comparison >= 0
 }
 
 async function fetchMetadata(config) {
@@ -62,6 +87,12 @@ async function resolveChannelVersion(config, metadata) {
   const version = metadata['dist-tags']?.[requested] ?? requested
   const record = metadata.versions?.[version]
   if (!record) fail(`core version '${requested}' is not published in the configured official channel`)
+  if (!isCompatibleVersion(version, config.minimumCoreVersion)) {
+    const reason = config.minimumCoreVersion
+      ? `below the configured minimum ${config.minimumCoreVersion}`
+      : 'invalid'
+    fail(`core version '${version}' is ${reason}`)
+  }
   return { version, record, requested }
 }
 
@@ -193,6 +224,8 @@ async function check() {
   const root = runtimeRoot()
   const current = await readCurrent(root)
   const installed = await isInstalled(root, resolved.version)
+  const comparison = current?.version ? compareVersions(resolved.version, current.version) : undefined
+  if (current?.version && comparison === undefined) fail(`cached core version '${current.version}' is invalid`)
   console.log(JSON.stringify({
     packageName: config.packageName,
     registry: config.registry,
@@ -200,24 +233,38 @@ async function check() {
     available: resolved.version,
     current: current?.version ?? null,
     installed,
-    updateAvailable: current?.version ? compareVersions(resolved.version, current.version) > 0 : true,
+    updateAvailable: current?.version ? comparison > 0 : true,
     integrity: resolved.record.dist?.integrity ?? null,
   }, null, 2))
 }
 
 async function install() {
   const config = await channel()
+  const root = runtimeRoot()
   let metadata
   try {
     metadata = await fetchMetadata(config)
   } catch (error) {
-    const cached = await readCurrent(runtimeRoot())
-    if (!cached || !(await isInstalled(runtimeRoot(), cached.version))) throw error
+    const cached = await readCurrent(root)
+    if (!cached || !isCompatibleVersion(cached.version, config.minimumCoreVersion) || !(await isInstalled(root, cached.version))) throw error
     console.warn(`core: official registry unavailable; reusing cached ${config.packageName}@${cached.version}`)
-    console.log(`core: runtime ${runtimeRoot()}`)
+    console.log(`core: runtime ${root}`)
     return
   }
   const resolved = await resolveChannelVersion(config, metadata)
+  const current = await readCurrent(root)
+  if (current?.version) {
+    const comparison = compareVersions(resolved.version, current.version)
+    if (comparison === undefined) fail(`cached core version '${current.version}' is invalid`)
+    if (comparison < 0) {
+      if (!(await isInstalled(root, current.version))) {
+        fail(`official channel ${resolved.version} is older than cached ${current.version}; refusing downgrade while the cached core is unavailable`)
+      }
+      console.warn(`core: official channel ${resolved.version} is older than cached ${current.version}; refusing downgrade`)
+      console.log(`core: runtime ${root}`)
+      return
+    }
+  }
   const result = await installVersion(config, resolved)
   console.log(`core: ${result.reused ? 'reused' : 'installed'} ${config.packageName}@${result.version}`)
   console.log(`core: runtime ${result.root}`)

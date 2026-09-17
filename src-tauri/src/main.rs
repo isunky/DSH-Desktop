@@ -6,6 +6,7 @@ use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::cmp::Ordering as VersionOrdering;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 #[cfg(target_os = "windows")]
@@ -644,16 +645,53 @@ fn npm_global_root(node: &NodeRuntime) -> Option<PathBuf> {
 }
 
 fn compatible_core_version(version: &str, channel: &CoreChannel) -> bool {
-    let Some(minimum) = channel.minimum_core_version.as_deref() else {
-        return true;
-    };
     let Ok(version) = Version::parse(version) else {
         return false;
+    };
+    let Some(minimum) = channel.minimum_core_version.as_deref() else {
+        return true;
     };
     let Ok(requirement) = VersionReq::parse(&format!(">={minimum}")) else {
         return false;
     };
     requirement.matches(&version)
+}
+
+fn compare_core_versions(current: &str, available: &str) -> Result<VersionOrdering, String> {
+    let current = Version::parse(current)
+        .map_err(|error| fail(format!("当前 DSH 核心版本无效：{current}（{error}）")))?;
+    let available = Version::parse(available)
+        .map_err(|error| fail(format!("官方 DSH 核心版本无效：{available}（{error}）")))?;
+    Ok(available.cmp(&current))
+}
+
+fn resolve_available_core_version(
+    metadata: &Value,
+    channel: &CoreChannel,
+) -> Result<(String, Version), String> {
+    let available = metadata
+        .get("dist-tags")
+        .and_then(|tags| tags.get(&channel.dist_tag))
+        .and_then(Value::as_str)
+        .ok_or_else(|| fail("官方 registry 未返回可用核心版本"))?;
+    let versions = metadata
+        .get("versions")
+        .and_then(Value::as_object)
+        .ok_or_else(|| fail("官方 registry 未返回核心版本清单"))?;
+    if !versions.contains_key(available) {
+        return Err(fail(format!(
+            "官方 registry 的 {} 渠道指向未发布版本 {available}",
+            channel.dist_tag
+        )));
+    }
+    let parsed = Version::parse(available)
+        .map_err(|error| fail(format!("官方 DSH 核心版本无效：{available}（{error}）")))?;
+    if !compatible_core_version(available, channel) {
+        return Err(fail(format!(
+            "官方 DSH 版本 {available} 低于客户端要求的最低版本。"
+        )));
+    }
+    Ok((available.to_owned(), parsed))
 }
 
 fn official_dsh_repository(manifest: &Value) -> bool {
@@ -1495,7 +1533,7 @@ fn start_client_blocking(app: &AppHandle, state: &AppState) -> Result<String, St
             app,
             "正在准备 DSH 核心",
             &format!(
-                "Node.js {} 已就绪，正在从官方 npm registry 检查 DSH 核心…",
+                "Node.js {} 已就绪，正在验证本机或本地缓存的 DSH 核心…",
                 node.version
             ),
             Some(40),
@@ -1953,18 +1991,15 @@ fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<Strin
         .map_err(|error| fail(format!("读取核心版本失败：{error}")))?
         .json()
         .map_err(|error| fail(format!("解析核心版本失败：{error}")))?;
-    let available = metadata
-        .get("dist-tags")
-        .and_then(|tags| tags.get(&channel.dist_tag))
-        .and_then(Value::as_str)
-        .ok_or_else(|| fail("官方 registry 未返回可用核心版本"))?;
-    if !compatible_core_version(available, &channel) {
-        return Err(fail(format!(
-            "官方 DSH 版本 {available} 低于客户端要求的最低版本。"
-        )));
-    }
-    if available == current_version {
-        return Ok(format!("当前 DSH 核心已是 {available}"));
+    let (available, _) = resolve_available_core_version(&metadata, &channel)?;
+    match compare_core_versions(&current_version, &available)? {
+        VersionOrdering::Less => {
+            return Ok(format!(
+                "当前 DSH 核心为 {current_version}，高于官方渠道版本 {available}，已跳过降级。"
+            ));
+        }
+        VersionOrdering::Equal => return Ok(format!("当前 DSH 核心已是 {available}")),
+        VersionOrdering::Greater => {}
     }
 
     let source = if external.is_some() {
@@ -2002,7 +2037,7 @@ fn check_core_update_blocking(app: &AppHandle, state: &AppState) -> Result<Strin
     stop_process(state, ProcessKind::Core);
 
     let updated = if let Some((node, _)) = external.as_ref() {
-        update_external_core(app, state, node, &channel, available).and_then(|updated| {
+        update_external_core(app, state, node, &channel, &available).and_then(|updated| {
             write_external_binding(&user_root, &updated.0, &updated.1)?;
             Ok(updated)
         })
@@ -2406,5 +2441,44 @@ mod tests {
     fn channel_without_minimum_keeps_backward_compatibility() {
         let channel = test_channel(None);
         assert!(compatible_core_version("0.0.1", &channel));
+        assert!(!compatible_core_version("not-a-version", &channel));
+    }
+
+    #[test]
+    fn core_update_comparison_accepts_only_a_higher_version() {
+        assert_eq!(
+            compare_core_versions("0.1.5", "0.1.6"),
+            Ok(VersionOrdering::Greater)
+        );
+        assert_eq!(
+            compare_core_versions("0.1.5", "0.1.5"),
+            Ok(VersionOrdering::Equal)
+        );
+        assert_eq!(
+            compare_core_versions("0.1.5", "0.1.4"),
+            Ok(VersionOrdering::Less)
+        );
+        assert_eq!(
+            compare_core_versions("0.1.5-rc.1", "0.1.5"),
+            Ok(VersionOrdering::Greater)
+        );
+    }
+
+    #[test]
+    fn registry_channel_must_point_to_a_published_compatible_version() {
+        let channel = test_channel(Some("0.1.5-rc.1"));
+        let metadata = serde_json::json!({
+            "dist-tags": { "latest": "0.1.6" },
+            "versions": { "0.1.6": {} }
+        });
+        let (version, parsed) = resolve_available_core_version(&metadata, &channel).unwrap();
+        assert_eq!(version, "0.1.6");
+        assert_eq!(parsed, Version::parse("0.1.6").unwrap());
+
+        let missing = serde_json::json!({
+            "dist-tags": { "latest": "0.1.7" },
+            "versions": { "0.1.6": {} }
+        });
+        assert!(resolve_available_core_version(&missing, &channel).is_err());
     }
 }
