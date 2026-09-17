@@ -1,72 +1,127 @@
 /* App-owned chrome only. The core renders unchanged in a separate webview. */
+:root {
+  --shell-header-bg: #fff;
+  --shell-header-border: #eceef1;
+  --shell-header-fg: #59616e;
+  --shell-header-hover: #f1f3f5;
+  --shell-header-close-hover: #fee9e9;
+  --shell-notice-bg: #fff;
+  --shell-notice-fg: #b42318;
+  --shell-dialog-bg: #fff;
+  --shell-dialog-fg: #272b36;
+  --shell-dialog-muted: #737987;
+  --shell-dialog-border: #e5e7ec;
+  --shell-dialog-button-bg: #fff;
+  --shell-dialog-button-border: #e0e3e9;
+  --shell-dialog-button-hover: #f3f4f8;
+  --shell-dialog-accent: #6065df;
+  --shell-dialog-accent-hover: #5055ce;
+  --shell-dialog-backdrop: #10182766;
+  --shell-dialog-divider: #eceef2;
+  --shell-dialog-badge: #838998;
+  --shell-dialog-error: #b54747;
+  --shell-dialog-shadow: #11182730;
+}
+:root[data-shell-theme="dark"] {
+  --shell-header-bg: #18191c;
+  --shell-header-border: #2c2e33;
+  --shell-header-fg: #bfc3cc;
+  --shell-header-hover: #292b30;
+  --shell-header-close-hover: #48272b;
+  --shell-notice-bg: #2a1e20;
+  --shell-notice-fg: #ffb4ab;
+  --shell-dialog-bg: #202125;
+  --shell-dialog-fg: #f1f2f4;
+  --shell-dialog-muted: #a3a7b1;
+  --shell-dialog-border: #383a42;
+  --shell-dialog-button-bg: #282a2f;
+  --shell-dialog-button-border: #41444d;
+  --shell-dialog-button-hover: #33363d;
+  --shell-dialog-accent: #7883f5;
+  --shell-dialog-accent-hover: #8992ff;
+  --shell-dialog-backdrop: #00000099;
+  --shell-dialog-divider: #34363d;
+  --shell-dialog-badge: #b0b5c0;
+  --shell-dialog-error: #ffb4ab;
+  --shell-dialog-shadow: #00000066;
+}
 body { padding-top: 48px; }
 #shell-header {
   position: fixed; inset: 0 0 auto; height: 48px; z-index: 10;
   display: flex; align-items: center; padding: 0 8px 0 20px;
-  background: #fff; color: #59616e; border-bottom: 1px solid #eceef1;
-  user-select: none; -webkit-user-select: none; color-scheme: light;
+  background: var(--shell-header-bg); color: var(--shell-header-fg);
+  border-bottom: 1px solid var(--shell-header-border);
+  user-select: none; -webkit-user-select: none;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease;
 }
 #drag-region { flex: 1; height: 100%; display: flex; align-items: center; min-width: 64px; }
 /* Show only the original wordmark: crop (610, 295, 1500, 175) of the 2172x724 lockup. */
-.shell-title { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 132px; aspect-ratio: 1500 / 175; overflow: hidden; pointer-events: none; filter: grayscale(1) drop-shadow(0 1px 0 #fff); opacity: .24; }
+.shell-title { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 132px; aspect-ratio: 1500 / 175; overflow: hidden; pointer-events: none; filter: grayscale(1) drop-shadow(0 1px 0 #fff); opacity: .24; transition: filter .18s ease, opacity .18s ease; }
+:root[data-shell-theme="dark"] .shell-title { filter: grayscale(1) invert(1); opacity: .28; }
 .shell-title img { position: absolute; width: 144.8%; max-width: none; height: auto; left: -40.666667%; top: -168.571429%; pointer-events: none; user-select: none; }
 .settings-brand { margin-top: 20px; width: min(100%, 280px); aspect-ratio: 8 / 1; overflow: hidden; }
 .settings-brand img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
+:root[data-shell-theme="dark"] .settings-brand img { filter: invert(1); opacity: .84; }
 #shell-header button {
   display: inline-flex; align-items: center; justify-content: center;
   width: 40px; height: 36px; padding: 0; margin: 0; border: 0;
   border-radius: 6px; background: transparent; color: inherit; flex-shrink: 0;
+  transition: background-color .15s ease, color .15s ease;
 }
 #shell-header button img { width: 16px; height: 16px; opacity: .7; pointer-events: none; }
-#shell-header button:hover, #shell-header button[aria-expanded="true"] { background: #f1f3f5; }
+:root[data-shell-theme="dark"] #shell-header button img,
+:root[data-shell-theme="dark"] #settings-dialog button img { filter: invert(1); }
+#shell-header button:hover, #shell-header button[aria-expanded="true"] { background: var(--shell-header-hover); }
 #shell-header button:focus-visible { outline: 2px solid #4d6bfe; outline-offset: -2px; }
-#shell-header button[data-action="close"]:hover { background: #fee9e9; }
+#shell-header button[data-action="close"]:hover { background: var(--shell-header-close-hover); }
 #shell-notice[hidden] { display: none; }
-#shell-notice { position: fixed; z-index: 20; top: 8px; left: 64px; max-width: 45vw; font-size: 12px; color: #b42318; background: white; }
+#shell-notice { position: fixed; z-index: 20; top: 8px; left: 64px; max-width: 45vw; font-size: 12px; color: var(--shell-notice-fg); background: var(--shell-notice-bg); }
 body.core-ready > main { display: none; }
 #settings-dialog {
   width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 80px);
   padding: 24px; overflow-y: auto; overscroll-behavior: contain;
-  border: 1px solid #e5e7ec; border-radius: 16px;
-  background: #fff; color: #272b36; color-scheme: light;
-  box-shadow: 0 20px 64px #11182730;
+  border: 1px solid var(--shell-dialog-border); border-radius: 16px;
+  background: var(--shell-dialog-bg); color: var(--shell-dialog-fg);
+  color-scheme: inherit;
+  box-shadow: 0 20px 64px var(--shell-dialog-shadow);
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease;
 }
-#settings-dialog::backdrop { background: #10182766; backdrop-filter: blur(4px); }
+#settings-dialog::backdrop { background: var(--shell-dialog-backdrop); backdrop-filter: blur(4px); transition: background-color .18s ease; }
 #settings-dialog [hidden] { display: none !important; }
 .settings-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 #settings-dialog h2 { margin: 0; font-size: 18px; font-weight: 650; }
 #settings-dialog h3 { margin: 0; font-size: 14px; font-weight: 600; }
-#settings-dialog p { margin: 0; font-size: 12px; line-height: 1.65; color: #737987; overflow-wrap: anywhere; }
-#settings-dialog button { border: 1px solid #e0e3e9; border-radius: 7px; background: #fff; color: #414858; padding: 7px 10px; font-size: 12px; transition: background .15s; }
-#settings-dialog button:hover { background: #f3f4f8; border-color: #cdd2de; }
+#settings-dialog p { margin: 0; font-size: 12px; line-height: 1.65; color: var(--shell-dialog-muted); overflow-wrap: anywhere; }
+#settings-dialog button { border: 1px solid var(--shell-dialog-button-border); border-radius: 7px; background: var(--shell-dialog-button-bg); color: var(--shell-dialog-fg); padding: 7px 10px; font-size: 12px; transition: background .15s, border-color .15s, color .15s; }
+#settings-dialog button:hover { background: var(--shell-dialog-button-hover); border-color: var(--shell-dialog-muted); }
 #settings-dialog button:focus-visible, #settings-dialog summary:focus-visible { outline: 2px solid #6469e8; outline-offset: 3px; }
 #settings-dialog #settings-close { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border-color: transparent; background: transparent; }
-#settings-dialog #settings-close:hover { background: #f3f4f8; }
+#settings-dialog #settings-close:hover { background: var(--shell-dialog-button-hover); }
 #settings-close img { width: 16px; height: 16px; opacity: .65; }
-.settings-card { padding: 18px 0; border-bottom: 1px solid #eceef2; }
+.settings-card { padding: 18px 0; border-bottom: 1px solid var(--shell-dialog-divider); }
 .settings-card-top { display: flex; align-items: baseline; gap: 10px; }
-.version-badge { color: #838998; font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.version-badge { color: var(--shell-dialog-badge); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .settings-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 #settings-dialog .settings-actions button { display: inline-flex; align-items: center; gap: 6px; }
 .settings-actions img { width: 13px; height: 13px; opacity: .7; }
-#settings-dialog .text-action { padding: 6px 0; background: transparent; border-color: transparent; color: #787f8e; }
-#settings-dialog .text-action:hover { color: #555bd1; }
+#settings-dialog .text-action { padding: 6px 0; background: transparent; border-color: transparent; color: var(--shell-dialog-muted); }
+#settings-dialog .text-action:hover { color: var(--shell-dialog-accent); }
 #core-update-feedback, #client-update-feedback { margin-top: 10px; }
-#settings-dialog #core-update-status, #settings-dialog #client-update-status { font-size: 12px; color: #737987; }
-.update-progress-track { height: 3px; margin-top: 10px; overflow: hidden; border-radius: 3px; background: #eceef6; }
-#client-update-progress { width: 0; height: 100%; background: #6469e8; transition: width .2s; }
+#settings-dialog #core-update-status, #settings-dialog #client-update-status { font-size: 12px; color: var(--shell-dialog-muted); }
+.update-progress-track { height: 3px; margin-top: 10px; overflow: hidden; border-radius: 3px; background: var(--shell-dialog-border); }
+#client-update-progress { width: 0; height: 100%; background: var(--shell-dialog-accent); transition: width .2s; }
 .update-feedback-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .update-feedback-actions:has(button:not([hidden])) { margin-top: 10px; }
-#settings-dialog #client-update-download, #settings-dialog #client-update-install { background: #6065df; border-color: #6065df; color: white; }
-#settings-dialog #client-update-download:hover, #settings-dialog #client-update-install:hover { background: #5055ce; }
+#settings-dialog #client-update-download, #settings-dialog #client-update-install { background: var(--shell-dialog-accent); border-color: var(--shell-dialog-accent); color: white; }
+#settings-dialog #client-update-download:hover, #settings-dialog #client-update-install:hover { background: var(--shell-dialog-accent-hover); border-color: var(--shell-dialog-accent-hover); }
 #core-update-details, #client-update-details { margin-top: 8px; }
-#settings-dialog summary { cursor: pointer; color: #737987; font-size: 12px; }
-#core-update-diagnostics, #client-update-notes { max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; line-height: 1.65; color: #737987; }
+#settings-dialog summary { cursor: pointer; color: var(--shell-dialog-muted); font-size: 12px; }
+#core-update-diagnostics, #client-update-notes { max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; line-height: 1.65; color: var(--shell-dialog-muted); }
 .settings-about { padding-top: 16px; }
 #settings-runtime { white-space: pre-wrap; padding-top: 10px; }
-#settings-dialog .settings-credit { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; color: #9096a2; }
+#settings-dialog .settings-credit { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; color: var(--shell-dialog-muted); }
 #settings-status:empty { display: none; }
-#settings-dialog #settings-status:not(:empty) { margin-top: 12px; color: #b54747; }
+#settings-dialog #settings-status:not(:empty) { margin-top: 12px; color: var(--shell-dialog-error); }
 #settings-dialog button[aria-busy="true"] { cursor: wait; }
 @media (max-width: 380px) { #settings-dialog { padding: 18px; } }
 @media (prefers-reduced-motion: reduce) { #client-update-progress, #bar { animation: none !important; transition: none !important; } }

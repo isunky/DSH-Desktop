@@ -1,3 +1,43 @@
+const shellRoot = document.documentElement
+const systemThemeQuery = typeof window.matchMedia === 'function'
+  ? window.matchMedia('(prefers-color-scheme: dark)')
+  : null
+let dshTheme = null
+let themeSyncInFlight = false
+
+function applyShellTheme(theme) {
+  const resolved = theme === 'dark' ? 'dark' : 'light'
+  shellRoot.dataset.shellTheme = resolved
+  shellRoot.style.colorScheme = resolved
+}
+
+function applySystemTheme() {
+  if (dshTheme === null) applyShellTheme(systemThemeQuery?.matches ? 'dark' : 'light')
+}
+
+async function syncShellTheme() {
+  if (!window.__TAURI__ || themeSyncInFlight) return
+  themeSyncInFlight = true
+  try {
+    const theme = await window.__TAURI__.core.invoke('core_theme')
+    if (theme?.scheme === 'dark' || theme?.scheme === 'light') {
+      dshTheme = theme.scheme
+    } else if (typeof theme?.dark === 'boolean') {
+      dshTheme = theme.dark ? 'dark' : 'light'
+    }
+    if (dshTheme !== null) applyShellTheme(dshTheme)
+  } catch {
+    applySystemTheme()
+  } finally {
+    themeSyncInFlight = false
+  }
+}
+
+applySystemTheme()
+systemThemeQuery?.addEventListener('change', applySystemTheme)
+setInterval(() => { void syncShellTheme() }, 800)
+void syncShellTheme()
+
 const header = document.querySelector('#shell-header')
 const settings = document.querySelector('#shell-settings')
 const dialog = document.querySelector('#settings-dialog')

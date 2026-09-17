@@ -14,7 +14,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::webview::WebviewBuilder;
@@ -28,6 +28,14 @@ const NODE_VERSION: &str = "22.19.0";
 const EXTERNAL_BINDING_FILE: &str = "runtime-binding.json";
 const OFFICIAL_DSH_REPOSITORY: &str = "github.com/deepseek-ai/deepseek-harness";
 const CLIENT_INFO_JSON: &str = include_str!("../../client/client-info.json");
+const CORE_THEME_SCRIPT: &str = r#"(() => {
+  const root = document.documentElement
+  const body = document.body
+  return {
+    dark: body?.hasAttribute('data-ds-dark-theme') === true,
+    scheme: root?.style.colorScheme === 'dark' ? 'dark' : 'light'
+  }
+})()"#;
 
 #[derive(Clone)]
 struct AppState {
@@ -61,6 +69,12 @@ struct StartupState {
     stage: String,
     detail: String,
     progress: Option<u8>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CoreTheme {
+    dark: bool,
+    scheme: String,
 }
 
 #[derive(Deserialize)]
@@ -2164,6 +2178,29 @@ async fn settings_info(app: AppHandle, webview: tauri::Webview) -> Result<Value,
 }
 
 #[tauri::command]
+async fn core_theme(app: AppHandle, webview: tauri::Webview) -> Result<CoreTheme, String> {
+    if webview.label() != "main" {
+        return Err("无权限".into());
+    }
+    let core = app
+        .get_webview("core")
+        .ok_or_else(|| "DSH 核心 WebView 尚未就绪".to_owned())?;
+    let (sender, receiver) = mpsc::channel();
+    core.eval_with_callback(CORE_THEME_SCRIPT, move |payload| {
+        let _ = sender.send(payload);
+    })
+    .map_err(|error| format!("读取 DSH 外观失败：{error}"))?;
+    let payload = tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(Duration::from_secs(1))
+            .map_err(|_| "读取 DSH 外观超时".to_owned())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    serde_json::from_str(&payload).map_err(|error| format!("解析 DSH 外观失败：{error}"))
+}
+
+#[tauri::command]
 async fn client_update_check(app: AppHandle, webview: tauri::Webview) -> Result<Value, String> {
     if webview.label() != "main" {
         return Err("无权限".into());
@@ -2359,6 +2396,7 @@ fn main() {
             navigate_to_core,
             shell_action,
             settings_info,
+            core_theme,
             client_update_check,
             client_update_download,
             client_update_cancel,
