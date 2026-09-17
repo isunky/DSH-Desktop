@@ -435,7 +435,9 @@ fn copy_directory(source: &Path, destination: &Path) -> io::Result<()> {
 }
 
 fn quiet_command(executable: &Path) -> Command {
-    let mut command = Command::new(executable);
+    let command = Command::new(executable);
+    #[cfg(target_os = "windows")]
+    let mut command = command;
     #[cfg(target_os = "windows")]
     command.creation_flags(0x08000000);
     command
@@ -1902,7 +1904,7 @@ fn download_client_update(app: &AppHandle, state: &AppState) -> Result<Value, St
     }))
 }
 
-fn launch_downloaded_client_update(app: &AppHandle, path: &Path) -> Result<(), String> {
+fn launch_downloaded_client_update(_app: &AppHandle, path: &Path) -> Result<(), String> {
     if !path.is_file() || client_asset_marker().is_none() {
         return Err(fail("客户端更新文件不存在或当前平台不支持安装"));
     }
@@ -1913,7 +1915,7 @@ fn launch_downloaded_client_update(app: &AppHandle, path: &Path) -> Result<(), S
         command
             .spawn()
             .map_err(|error| fail(format!("启动客户端安装器失败：{error}")))?;
-        app.exit(0);
+        _app.exit(0);
         return Ok(());
     }
     #[cfg(target_os = "macos")]
