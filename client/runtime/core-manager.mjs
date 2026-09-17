@@ -142,7 +142,7 @@ async function installVersion(config, resolved) {
   await mkdir(staging, { recursive: true })
   try {
     await writeFile(join(staging, 'package.json'), JSON.stringify({
-      name: 'deepseek-harness-client-core',
+      name: 'dsh-launcher-core',
       private: true,
       version: resolved.version,
       packageManager: `pnpm@${PNPM_VERSION}`,

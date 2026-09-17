@@ -55,7 +55,7 @@ try {
     }
 
     Set-Location -LiteralPath $projectRoot
-    Write-Host 'DeepSeek Harness Desktop - Windows Build' -ForegroundColor Green
+    Write-Host 'DSH Launcher - Windows Build' -ForegroundColor Green
     Write-Host "Project: $projectRoot"
 
     Write-Step 'Checking build environment'
@@ -119,7 +119,7 @@ try {
         Write-Host "  $($artifact.FullName)  ($sizeMb MB)" -ForegroundColor Green
     }
     Write-Host ""
-    Write-Host 'Run the generated installer to install DeepSeek Harness Desktop.' -ForegroundColor Green
+    Write-Host 'Run the generated installer to install DSH Launcher.' -ForegroundColor Green
     exit 0
 }
 catch {

@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="client/tauri/icons/brand.svg" alt="DeepSeek Harness" width="88">
+<img src="client/tauri/icons/dsh-launcher-lockup.png" alt="DSH Launcher" width="220">
 
-# DeepSeek Harness Desktop
+# DSH Launcher
 
-轻量、跨平台、按需加载的 DeepSeek Harness 独立桌面客户端
+轻量、跨平台、按需加载的 DeepSeek Harness 桌面启动器
 
 <p>
   <a href="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml"><img src="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml/badge.svg?branch=main" alt="Basic CI"></a>
@@ -127,6 +127,8 @@ Windows 应用目录只用于本地验证，正式发布使用 Windows 安装包
 Windows 安装器在目标机缺少 WebView2 时会尝试联网下载引导程序。离线部署时，请预先安装 WebView2，或调整 `src-tauri/tauri.conf.json` 的 WebView 安装策略。
 
 正式发布仍需在对应平台配置代码签名、公证和更新服务。
+
+DSH Launcher 是 DeepSeek Harness 的独立桌面启动器，负责启动本地 Web UI、管理 DSH 核心和复用本机运行环境。
 
 设置弹窗中的“检查客户端更新”会直接查询客户端 GitHub Release，并按当前平台下载对应安装包到本地；下载完成后点击“打开安装包”启动安装。客户端不会把更新下载过程转交给浏览器，GitHub 链接仅用于查看来源和发布说明。Windows 使用 x64 安装器，macOS 使用对应架构的 DMG。
 

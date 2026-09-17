@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DeepSeek Harness</title>
+    <title>DSH Launcher</title>
     <link rel="stylesheet" href="./shell.css">
     <style>
       :root {
@@ -58,7 +58,7 @@
   <body>
     <header id="shell-header" aria-label="窗口工具栏">
       <div id="drag-region" title="拖动窗口，双击最大化或还原">
-        <img class="brand" src="./icons/brand.svg" alt="DeepSeek Harness" draggable="false">
+        <span class="shell-title"><img src="./icons/dsh-launcher-lockup.png" alt="DSH Launcher" draggable="false"></span>
       </div>
       <button id="shell-settings" title="设置" aria-label="设置" aria-haspopup="dialog"><img src="./icons/ellipsis.svg" alt=""></button>
       <button data-action="minimize" title="最小化" aria-label="最小化"><img src="./icons/minus.svg" alt=""></button>
@@ -89,12 +89,12 @@
           <details id="client-update-details" hidden><summary>查看版本说明</summary><pre id="client-update-notes"></pre></details>
         </div>
       </section>
-      <section class="settings-about"><details><summary>运行环境</summary><p id="settings-runtime">正在读取…</p></details><p class="settings-credit">DeepSeek Harness <span>开发者 Sunky</span></p></section>
+      <section class="settings-about"><details><summary>运行环境</summary><p id="settings-runtime">正在读取…</p></details><div class="settings-brand"><img src="./icons/dsh-launcher-lockup.png" alt="DSH Launcher" draggable="false"></div><p class="settings-credit">DSH Launcher · DeepSeek Harness 核心 <span>开发者 Sunky</span></p></section>
       <p id="settings-status" role="status" aria-live="polite"></p>
     </dialog>
     <main>
-      <p class="eyebrow">Local desktop client</p>
-      <h1>DeepSeek Harness</h1>
+      <p class="eyebrow">轻量桌面启动器</p>
+      <h1>DSH Launcher</h1>
       <div id="stage">正在准备客户端</div>
       <p id="detail">正在初始化启动流程…</p>
       <div class="track" aria-label="启动进度"><div id="bar" class="indeterminate"></div></div>

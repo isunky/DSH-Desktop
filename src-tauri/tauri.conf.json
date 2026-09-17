@@ -1,5 +1,5 @@
 {
-  "productName": "DeepSeek Harness",
+  "productName": "DSH Launcher",
   "version": "0.4.0",
   "identifier": "com.isunky.deepseek-harness.client",
   "build": {
@@ -10,7 +10,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "DeepSeek Harness",
+        "title": "DSH Launcher",
         "width": 1280,
         "height": 840,
         "minWidth": 900,

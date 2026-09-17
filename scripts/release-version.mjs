@@ -86,7 +86,7 @@ async function updateFiles(version) {
   )
   await replaceVersion(
     join(ROOT, 'src-tauri', 'Cargo.lock'),
-    /(\[\[package\]\]\r?\nname = "deepseek-harness"\r?\nversion = ")(\d+\.\d+\.\d+)(")/u,
+    /(\[\[package\]\]\r?\nname = "dsh-launcher"\r?\nversion = ")(\d+\.\d+\.\d+)(")/u,
     'src-tauri/Cargo.lock',
     version,
   )

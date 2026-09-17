@@ -1,7 +1,7 @@
 @echo off
 setlocal
 chcp 65001 >nul
-title DeepSeek Harness Desktop - Windows Build
+title DSH Launcher - Windows Build
 
 where pwsh.exe >nul 2>nul
 if errorlevel 1 (

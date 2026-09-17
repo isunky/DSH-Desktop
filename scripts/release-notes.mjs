@@ -13,7 +13,7 @@ export function verifyVersion(tag, cwd = process.cwd()) {
     JSON.parse(read('package.json')).version,
     JSON.parse(read('src-tauri/tauri.conf.json')).version,
     read('src-tauri/Cargo.toml').match(/^version\s*=\s*"([^"]+)"/mu)?.[1],
-    read('src-tauri/Cargo.lock').match(/name = "deepseek-harness"\r?\nversion = "([^"]+)"/u)?.[1],
+    read('src-tauri/Cargo.lock').match(/name = "dsh-launcher"\r?\nversion = "([^"]+)"/u)?.[1],
   ]
   if (versions.some(version => version !== tag.slice(1))) throw new Error('Tag and all four client version files must match')
 }
@@ -34,7 +34,7 @@ export function releaseNotes(tag, cwd = process.cwd(), repository = 'isunky/DSH-
   const url = `https://github.com/${repository}`
   const escape = text => text.replace(/[\\`*_[\]<>]/gu, '\\$&')
   return [
-    `# DeepSeek Harness ${tag}`, '', '## 最近更新', '',
+    `# DSH Launcher ${tag}`, '', '## 最近更新', '',
     ...commits.map(({ sha, subject }) => `- ${escape(subject)} ([${sha.slice(0, 7)}](${url}/commit/${sha}))`),
     ...(commits.length ? [] : ['- 本次版本没有额外的功能或修复提交。']),
     '', ...(previous ? [`[查看完整变更 ${previous} → ${tag}](${url}/compare/${previous}...${tag})`, ''] : []),

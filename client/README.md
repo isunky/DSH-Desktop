@@ -1,4 +1,4 @@
-# Client Layer
+# DSH Launcher Client Layer
 
 本目录保存独立客户端层：
 

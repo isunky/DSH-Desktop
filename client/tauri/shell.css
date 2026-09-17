@@ -7,7 +7,11 @@ body { padding-top: 48px; }
   user-select: none; -webkit-user-select: none; color-scheme: light;
 }
 #drag-region { flex: 1; height: 100%; display: flex; align-items: center; min-width: 64px; }
-#shell-header .brand { width: 28px; height: 28px; pointer-events: none; }
+/* Show only the original wordmark: crop (610, 295, 1500, 175) of the 2172x724 lockup. */
+.shell-title { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 132px; aspect-ratio: 1500 / 175; overflow: hidden; pointer-events: none; filter: grayscale(1) drop-shadow(0 1px 0 #fff); opacity: .24; }
+.shell-title img { position: absolute; width: 144.8%; max-width: none; height: auto; left: -40.666667%; top: -168.571429%; pointer-events: none; user-select: none; }
+.settings-brand { margin-top: 20px; width: min(100%, 280px); aspect-ratio: 8 / 1; overflow: hidden; }
+.settings-brand img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
 #shell-header button {
   display: inline-flex; align-items: center; justify-content: center;
   width: 40px; height: 36px; padding: 0; margin: 0; border: 0;
@@ -60,7 +64,7 @@ body.core-ready > main { display: none; }
 #core-update-diagnostics, #client-update-notes { max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; line-height: 1.65; color: #737987; }
 .settings-about { padding-top: 16px; }
 #settings-runtime { white-space: pre-wrap; padding-top: 10px; }
-#settings-dialog .settings-credit { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 22px; font-size: 11px; color: #9096a2; }
+#settings-dialog .settings-credit { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; color: #9096a2; }
 #settings-status:empty { display: none; }
 #settings-dialog #settings-status:not(:empty) { margin-top: 12px; color: #b54747; }
 #settings-dialog button[aria-busy="true"] { cursor: wait; }

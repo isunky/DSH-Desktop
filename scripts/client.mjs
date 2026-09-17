@@ -104,7 +104,7 @@ async function packageClient(target, directory = false) {
 
   const packageJson = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
   const version = packageJson.version
-  const executableName = process.platform === 'win32' ? 'deepseek-harness.exe' : 'deepseek-harness'
+  const executableName = process.platform === 'win32' ? 'dsh-launcher.exe' : 'dsh-launcher'
   if (directory) {
     const binary = join(releaseRoot, executableName)
     await cp(binary, join(outputDirectory, executableName))
@@ -119,8 +119,8 @@ async function packageClient(target, directory = false) {
     }
     const source = join(bundleDirectory, candidates[0])
     const name = target === 'win-x64'
-      ? `DeepSeek-Harness-${version}-win-x64.exe`
-      : `DeepSeek-Harness-${version}-${target}.dmg`
+      ? `DSH-Launcher-${version}-win-x64.exe`
+      : `DSH-Launcher-${version}-${target}.dmg`
     await cp(source, join(outputDirectory, name))
   }
   console.log(`client: artifacts written to ${outputDirectory}`)

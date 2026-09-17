@@ -245,7 +245,7 @@ fn resource_root(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn http_client(timeout: Duration, no_redirect: bool) -> Result<Client, String> {
     let mut builder = Client::builder()
-        .user_agent("DeepSeek-Harness-Client/0.1.0")
+        .user_agent("DSH-Launcher/0.3.1")
         .timeout(timeout);
     if no_redirect {
         builder = builder.redirect(reqwest::redirect::Policy::none());
@@ -1651,7 +1651,7 @@ fn show_about(app: &AppHandle) {
     let description = info
         .get("description")
         .and_then(Value::as_str)
-        .unwrap_or("DeepSeek Harness 独立桌面客户端");
+        .unwrap_or("DSH Launcher 独立桌面启动器");
     let client_version = app.package_info().version.to_string();
     let message = format!(
         "{description}\n\n桌面客户端 v{client_version}\nDSH 核心 {core}\n客户端开发者 · {developer}\n\n{runtime}",
