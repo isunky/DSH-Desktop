@@ -29,3 +29,4 @@ jobs:
           node scripts/release-version.mjs next patch
           node scripts/release-notes.mjs verify "v$(node -p "require('./package.json').version")"
           node --test client/runtime/hide-console.test.cjs
+          node --test client/tauri/core-theme.test.js

@@ -3,7 +3,6 @@ const systemThemeQuery = typeof window.matchMedia === 'function'
   ? window.matchMedia('(prefers-color-scheme: dark)')
   : null
 let dshTheme = null
-let themeSyncInFlight = false
 
 function applyShellTheme(theme) {
   const resolved = theme === 'dark' ? 'dark' : 'light'
@@ -15,28 +14,33 @@ function applySystemTheme() {
   if (dshTheme === null) applyShellTheme(systemThemeQuery?.matches ? 'dark' : 'light')
 }
 
-async function syncShellTheme() {
-  if (!window.__TAURI__ || themeSyncInFlight) return
-  themeSyncInFlight = true
-  try {
-    const theme = await window.__TAURI__.core.invoke('core_theme')
-    if (theme?.scheme === 'dark' || theme?.scheme === 'light') {
-      dshTheme = theme.scheme
-    } else if (typeof theme?.dark === 'boolean') {
-      dshTheme = theme.dark ? 'dark' : 'light'
+function receiveCoreTheme(theme) {
+  if (!theme || !['light', 'dark'].includes(theme.scheme)) return
+  dshTheme = theme.scheme
+  applyShellTheme(dshTheme)
+  const properties = {
+    background: '--shell-header-bg',
+    foreground: '--shell-header-fg',
+    border: '--shell-header-border',
+    hover: '--shell-header-hover',
+  }
+  for (const [key, property] of Object.entries(properties)) {
+    const color = theme[key]
+    // Remove old overrides when the new theme has no usable token.
+    shellRoot.style.removeProperty(property)
+    if (typeof color === 'string' && color.length <= 128 && CSS.supports('color', color)
+      && !/var\(|currentcolor|inherit|initial|unset/i.test(color)) {
+      shellRoot.style.setProperty(property, color)
     }
-    if (dshTheme !== null) applyShellTheme(dshTheme)
-  } catch {
-    applySystemTheme()
-  } finally {
-    themeSyncInFlight = false
   }
 }
 
 applySystemTheme()
 systemThemeQuery?.addEventListener('change', applySystemTheme)
-setInterval(() => { void syncShellTheme() }, 800)
-void syncShellTheme()
+window.__dshThemeReady = window.__TAURI__
+  ? window.__TAURI__.event.listen('core-theme-changed', event => receiveCoreTheme(event.payload))
+    .catch(error => console.warn('Theme listener unavailable', error))
+  : Promise.resolve()
 
 const header = document.querySelector('#shell-header')
 const settings = document.querySelector('#shell-settings')

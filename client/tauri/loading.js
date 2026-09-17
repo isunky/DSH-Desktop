@@ -74,6 +74,7 @@ async function start() {
   }
 
   try {
+    await window.__dshThemeReady
     const url = await invokeApi('start_client')
     await invokeApi('navigate_to_core', { url })
     document.body.classList.add('core-ready')

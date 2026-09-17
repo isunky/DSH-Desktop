@@ -14,7 +14,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::webview::WebviewBuilder;
@@ -28,14 +28,7 @@ const NODE_VERSION: &str = "22.19.0";
 const EXTERNAL_BINDING_FILE: &str = "runtime-binding.json";
 const OFFICIAL_DSH_REPOSITORY: &str = "github.com/deepseek-ai/deepseek-harness";
 const CLIENT_INFO_JSON: &str = include_str!("../../client/client-info.json");
-const CORE_THEME_SCRIPT: &str = r#"(() => {
-  const root = document.documentElement
-  const body = document.body
-  return {
-    dark: body?.hasAttribute('data-ds-dark-theme') === true,
-    scheme: root?.style.colorScheme === 'dark' ? 'dark' : 'light'
-  }
-})()"#;
+const CORE_THEME_SCRIPT: &str = include_str!("../../client/tauri/core-theme.js");
 
 #[derive(Clone)]
 struct AppState {
@@ -71,10 +64,14 @@ struct StartupState {
     progress: Option<u8>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct CoreTheme {
-    dark: bool,
+    origin: String,
     scheme: String,
+    background: Option<String>,
+    foreground: Option<String>,
+    border: Option<String>,
+    hover: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1635,9 +1632,30 @@ fn navigate_to_core_window(app: &AppHandle, url: &str) -> Result<(), String> {
         .inner_size()
         .map_err(|error| error.to_string())?
         .to_logical::<f64>(window.scale_factor().map_err(|error| error.to_string())?);
+    let theme_app = app.clone();
     window
         .add_child(
-            WebviewBuilder::new("core", WebviewUrl::External(parsed)),
+            WebviewBuilder::new("core", WebviewUrl::External(parsed))
+                .on_page_load(|webview, payload| {
+                    if payload.event() == tauri::webview::PageLoadEvent::Finished
+                        && payload.url().scheme() == "http"
+                        && payload.url().host_str() == Some("127.0.0.1")
+                    {
+                        let _ = webview.eval(CORE_THEME_SCRIPT);
+                    }
+                })
+                .on_navigation(move |url| {
+                    if url.scheme() != "dsh-launcher-theme" {
+                        return true;
+                    }
+                    let source = theme_app
+                        .get_webview("core")
+                        .and_then(|core| core.url().ok());
+                    if let Some(theme) = source.and_then(|source| parse_core_theme(url, &source)) {
+                        let _ = theme_app.emit_to("main", "core-theme-changed", theme);
+                    }
+                    false
+                }),
             LogicalPosition::new(0.0, 48.0),
             LogicalSize::new(size.width, (size.height - 48.0).max(1.0)),
         )
@@ -2177,27 +2195,36 @@ async fn settings_info(app: AppHandle, webview: tauri::Webview) -> Result<Value,
     .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
-async fn core_theme(app: AppHandle, webview: tauri::Webview) -> Result<CoreTheme, String> {
-    if webview.label() != "main" {
-        return Err("无权限".into());
+fn parse_core_theme(url: &Url, source: &Url) -> Option<CoreTheme> {
+    if url.scheme() != "dsh-launcher-theme"
+        || source.scheme() != "http"
+        || source.host_str() != Some("127.0.0.1")
+        || url.host_str() != Some("changed")
+        || url.as_str().len() > 4096
+    {
+        return None;
     }
-    let core = app
-        .get_webview("core")
-        .ok_or_else(|| "DSH 核心 WebView 尚未就绪".to_owned())?;
-    let (sender, receiver) = mpsc::channel();
-    core.eval_with_callback(CORE_THEME_SCRIPT, move |payload| {
-        let _ = sender.send(payload);
-    })
-    .map_err(|error| format!("读取 DSH 外观失败：{error}"))?;
-    let payload = tauri::async_runtime::spawn_blocking(move || {
-        receiver
-            .recv_timeout(Duration::from_secs(1))
-            .map_err(|_| "读取 DSH 外观超时".to_owned())
-    })
-    .await
-    .map_err(|error| error.to_string())??;
-    serde_json::from_str(&payload).map_err(|error| format!("解析 DSH 外观失败：{error}"))
+    let payload = url.query_pairs().find(|(key, _)| key == "payload")?.1;
+    let theme: CoreTheme = serde_json::from_str(&payload).ok()?;
+    if theme.origin != source.origin().ascii_serialization()
+        || !matches!(theme.scheme.as_str(), "light" | "dark")
+    {
+        return None;
+    }
+    for color in [
+        &theme.background,
+        &theme.foreground,
+        &theme.border,
+        &theme.hover,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if color.len() > 128 {
+            return None;
+        }
+    }
+    Some(theme)
 }
 
 #[tauri::command]
@@ -2396,7 +2423,6 @@ fn main() {
             navigate_to_core,
             shell_action,
             settings_info,
-            core_theme,
             client_update_check,
             client_update_download,
             client_update_cancel,
@@ -2435,6 +2461,34 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn theme_bridge_accepts_only_current_local_origin_and_known_scheme() {
+        let source = Url::parse("http://127.0.0.1:3456/?token=secret").unwrap();
+        let mut notification = Url::parse("dsh-launcher-theme://changed/").unwrap();
+        let payload = serde_json::json!({ "origin": "http://127.0.0.1:3456", "scheme": "dark", "background": "#181818" });
+        notification
+            .query_pairs_mut()
+            .append_pair("payload", &payload.to_string());
+        assert_eq!(
+            parse_core_theme(&notification, &source).unwrap().scheme,
+            "dark"
+        );
+        assert!(parse_core_theme(
+            &notification,
+            &Url::parse("http://127.0.0.1:9999/").unwrap()
+        )
+        .is_none());
+        assert!(
+            parse_core_theme(&notification, &Url::parse("https://example.com/").unwrap()).is_none()
+        );
+        notification.set_query(None);
+        notification.query_pairs_mut().append_pair(
+            "payload",
+            r#"{"origin":"http://127.0.0.1:3456","scheme":"unknown"}"#,
+        );
+        assert!(parse_core_theme(&notification, &source).is_none());
+    }
 
     #[cfg(target_os = "windows")]
     #[test]
