@@ -4,7 +4,7 @@
 
 # DSH Launcher
 
-轻量、跨平台、按需加载的 DeepSeek Harness 桌面启动器
+让 DeepSeek Harness 在 Windows 和 macOS 上更方便地启动和更新。
 
 <p>
   <a href="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml"><img src="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml/badge.svg?branch=main" alt="Basic CI"></a>
@@ -12,76 +12,85 @@
 </p>
 
 <p>
-  <a href="https://github.com/deepseek-ai/deepseek-harness">上游项目</a>
+  <a href="https://github.com/isunky/DSH-Desktop/releases/latest">下载 DSH Launcher</a>
   ·
-  <a href="https://github.com/isunky/DSH-Desktop/releases">下载客户端</a>
+  <a href="https://github.com/deepseek-ai/deepseek-harness">了解 DeepSeek Harness 官方项目</a>
   ·
-  <a href="https://github.com/isunky/DSH-Desktop/actions">查看构建</a>
+  <a href="https://github.com/isunky/DSH-Desktop/issues">反馈问题</a>
 </p>
 
 </div>
 
-> [!NOTE]
-> 本项目处于预览阶段。桌面安装包只包含 Tauri 壳和启动管理器，不内置 Node.js 或完整 DSH 核心；首次启动会优先检测并复用满足要求的本机 Node.js 与全局官方 DSH，找不到时才按需下载并缓存运行环境。
+DSH Launcher 是一个轻量桌面启动器。安装后，它会帮你准备并启动 DSH 核心和本地界面，也可以分别检查 DSH 核心与启动器本身的更新。
 
-## 亮点
+## 下载和安装
 
-| 方向 | 说明 |
-| --- | --- |
-| 轻量桌面壳 | 使用 Tauri + 系统 WebView，避免把完整浏览器运行时打进安装包。 |
-| 按需运行时 | 首次启动优先复用兼容的本机 Node.js/全局 DSH；找不到时才下载固定版本 Node.js，并使用 SHA-256 校验。 |
-| 核心独立管理 | DSH 核心通过 npm 按需安装，版本目录与用户数据分离，支持保留旧版本。 |
-| 沉浸式体验 | 自定义无边框头部、统一窗口控件；核心页面在独立 WebView 中原样运行。 |
-| 安静运行 | Windows 启动任务和 DSH 后台进程隐藏控制台窗口，诊断输出仍由客户端接收。 |
+前往[最新版本下载页](https://github.com/isunky/DSH-Desktop/releases/latest)，在最新版本下选择适合你电脑的安装包：
 
-## 架构
-
-```mermaid
-flowchart LR
-    Shell["Tauri 壳<br/>Rust + 系统 WebView"] --> Boot["启动协调器"]
-    Boot --> Detect["检测本机运行时"]
-    Detect --> System["复用系统 Node.js<br/>与全局 DSH"]
-    Detect --> Node["缺少时按需下载<br/>Node.js 22.19.0"]
-    Detect --> Core["缺少时按需安装<br/>@deepseek-ai/dsh"]
-    System --> Service["本地 DSH Web 服务"]
-    Node --> Service["本地 DSH Web 服务"]
-    Core --> Service
-    Service --> UI["独立核心 WebView<br/>核心界面保持原样"]
-    Boot --> Data["用户数据目录<br/>运行时、核心版本、dsh-home"]
-```
-
-启动流程如下：
-
-1. Tauri 壳启动自定义头部和启动页；
-2. 检查满足 `^22.19.0 || >=24.0.0` 的本机 Node.js，以及全局官方 `@deepseek-ai/dsh`；
-3. 验证通过则保存路径绑定并直接使用；否则复用本机 Node.js 安装 DSH，或下载并校验客户端托管的 Node.js；
-4. 启动本地 DSH Web 服务，并将核心页面加载到独立 WebView；
-5. 已缓存 Node.js 与核心时，可以断网启动。
-
-## 支持平台
-
-| 平台 | 架构 | 打包产物 |
+| 电脑 | 下载文件 | 安装方式 |
 | --- | --- | --- |
-| Windows | x64 | NSIS 安装包、便携 ZIP |
-| macOS | arm64 | DMG |
-| macOS | x64 | DMG |
+| Windows 64 位 | 文件名带有 `win-x64` 的 `.exe` 安装包 | 双击安装，按提示完成 |
+| Mac，Apple 芯片（M 系列） | 文件名带有 `mac-arm64` 的 `.dmg` | 打开磁盘映像，将应用拖到“应用程序”文件夹 |
+| Mac，Intel 芯片 | 文件名带有 `mac-x64` 的 `.dmg` | 打开磁盘映像，将应用拖到“应用程序”文件夹 |
 
-## 快速开始
+如果不确定 Mac 使用哪种芯片，打开苹果菜单中的“关于本机”：显示“芯片 Apple M…”的是 Apple 芯片；显示“处理器 Intel…”的是 Intel 芯片。
 
-### 环境要求
+目前 macOS 安装包尚未进行 Apple 开发者签名和公证。首次打开时，macOS 可能会提示无法确认开发者或检查恶意软件。请先确认安装包来自上面的官方发布页；如果仍要继续，先尝试打开应用，再到“系统设置 → 隐私与安全性”选择“仍要打开”并确认。详情见 [Apple 的说明](https://support.apple.com/zh-cn/102445)。
 
-- Node.js `22.19+` 或 `24+`、Corepack/pnpm；
-- Rust stable、Cargo；
-- Windows 需要 MSVC 工具链，macOS 需要 Xcode Command Line Tools；
-- 构建目标为 Windows x64 或 macOS x64/arm64。
+## 第一次启动
 
-首次准备 Tauri CLI：
+首次启动需要联网准备 DSH 运行环境，界面会显示正在处理的步骤和用时。你不需要另外安装 Node.js、pnpm 或 DSH 命令行工具。
 
-```sh
-cargo install tauri-cli --version 2.11.4 --locked
-```
+启动器会先检查电脑上是否已经有可用的 Node.js 和官方 DSH 核心；符合要求时会直接复用。缺少组件时，启动器会从官方渠道按需下载并保存到本机。准备完成后，DSH 界面会在启动器窗口中打开。
 
-### 开发启动
+首次准备可能需要一些时间，具体取决于网络速度。启动页面可以取消并退出；如果遇到失败，页面会显示错误信息，并在支持的情况下提供修复重试。Windows 电脑如果尚未安装 WebView2，安装过程需要联网获取它。
+
+运行环境准备完成后，所需组件会在本机复用或缓存。之后启动通常不需要重新下载；已有缓存时，断网也可以启动。首次安装和检查更新需要联网。
+
+## 日常使用和更新
+
+主界面右上角的“…”按钮打开设置。这里可以分别管理两类更新：
+
+- **DSH 核心更新**：检查 DeepSeek 官方发布的核心版本。确认更新后，启动器会更新当前使用的核心。
+- **DSH Launcher 更新**：检查本项目的 GitHub Release。启动器会在应用内下载适用于你电脑的安装包；下载完成后，点击“打开安装包”继续安装。
+
+两种更新相互独立。更新启动器不会替你更新 DSH 核心，更新核心也不会替你更新启动器。DSH Launcher 使用单独的用户数据目录，更新程序不会清除其中的聊天和其他数据。以前通过其他方式运行 DSH 保存的数据不会自动搬进这个目录。
+
+## 用户数据保存在哪里
+
+| 系统 | 数据目录 |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\DeepSeek Harness\dsh-home\` |
+| macOS | `~/Library/Application Support/DeepSeek Harness/dsh-home/` |
+
+此目录由 DSH 保存用户数据。若需要备份，可先退出 DSH Launcher，再复制整个 `dsh-home` 文件夹到安全位置。请勿在 DSH 运行时移动或删除该文件夹。
+
+## 遇到问题
+
+**启动一直停在准备中或下载失败**
+
+首次启动需要访问 Node.js 下载站点和 DeepSeek 官方核心发布渠道。请检查网络后重试。若页面显示“自动修复并重试”，可以点击该按钮；失败详情保存在数据目录上一级的 `startup-error.log`。
+
+**更新后聊天或设置还在吗？**
+
+正常情况下会保留。DSH 用户数据位于上面的 `dsh-home` 文件夹，与启动器和核心更新分开保存。若要重装系统或手动清理数据，请先备份该文件夹。
+
+**安装包从哪里来？**
+
+启动器只从 [DSH Launcher 官方 GitHub Releases](https://github.com/isunky/DSH-Desktop/releases) 获取自身更新。DSH 核心来自 [DeepSeek 官方项目](https://github.com/deepseek-ai/deepseek-harness)的发布渠道。你可以在设置中点击对应仓库链接查看来源和版本说明。
+
+如果问题仍然存在，请到[问题反馈页](https://github.com/isunky/DSH-Desktop/issues)提交问题，并附上系统版本、启动页面显示的错误信息，以及（如存在）`startup-error.log`。提交日志前，请检查其中没有你不希望公开的个人信息。
+
+## 项目说明
+
+DSH Launcher 是社区维护的独立桌面启动器，并非 DeepSeek 官方产品。DeepSeek Harness 的核心程序由 [DeepSeek 官方项目](https://github.com/deepseek-ai/deepseek-harness)发布；本启动器的开发者是 Sunky。
+
+<details>
+<summary>面向开发者：构建、测试和上游同步</summary>
+
+### 本地开发
+
+开发构建需要 Node.js 22.19+、pnpm、Rust stable 和平台对应的 C++/Xcode 工具。Windows 可双击仓库根目录的 `Build-Windows.cmd` 构建 Windows x64 安装包；macOS 需要在对应架构的 Mac 上构建。
 
 ```sh
 git submodule update --init --recursive
@@ -91,141 +100,27 @@ pnpm run client:check
 pnpm run client:dev
 ```
 
-首次启动会安装 `client/core-channel.json` 中指定的核心版本；如果本机已有兼容的全局官方 DSH，则会直接复用。也可以先使用开发机 Node.js 检查或安装客户端托管核心：
+Windows 一键构建仅生成安装包，不生成便携版。也可用 `pnpm run client:package:win` 构建 Windows 安装包；macOS 命令见下表。
 
-```sh
-pnpm run client:core:check
-pnpm run client:core:install
-```
-
-启动页会显示准备阶段和耗时。首次安装时间较长时，可以点击取消按钮、按 `Esc` 或直接关闭窗口；客户端会停止安装任务和本地 DSH 服务。
-
-## 本地构建
-
-Windows 用户可在仓库根目录直接双击 `Build-Windows.cmd`。脚本使用 PowerShell 7.2+（`pwsh.exe`），不会回退到 Windows PowerShell 5；随后检查 Node.js、Rust/MSVC 和 Tauri CLI，初始化子模块、安装依赖、运行测试，并生成 Windows x64 安装包。该一键脚本不生成便携版。命令行也可执行：
-
-```powershell
-.\Build-Windows.ps1
-```
-
-依赖已安装时可跳过 `pnpm install`，调试构建时也可按需跳过检查：
-
-```powershell
-.\Build-Windows.ps1 -SkipInstall
-.\Build-Windows.ps1 -SkipInstall -SkipChecks
-```
-
-| 目标 | 命令 | 产物目录 |
-| --- | --- | --- |
-| Windows x64 安装包 | `pnpm run client:package:win` | `artifacts/win-x64/` |
-| Windows x64 应用目录（本地验证） | `pnpm run client:package:dir` | `artifacts/dir/` |
-| macOS arm64 | `pnpm run client:package:mac:arm64` | `artifacts/mac-arm64/` |
-| macOS x64 | `pnpm run client:package:mac:x64` | `artifacts/mac-x64/` |
-
-Windows 应用目录只用于本地验证，正式发布使用 Windows 安装包。安装包和应用目录都不包含 Node.js 或 DSH 核心，目标机首次运行仍会按需下载。
-
-Windows 安装器在目标机缺少 WebView2 时会尝试联网下载引导程序。离线部署时，请预先安装 WebView2，或调整 `src-tauri/tauri.conf.json` 的 WebView 安装策略。
-
-正式发布仍需在对应平台配置代码签名、公证和更新服务。
-
-DSH Launcher 是 DeepSeek Harness 的独立桌面启动器，负责启动本地 Web UI、管理 DSH 核心和复用本机运行环境。
-
-设置弹窗中的“检查客户端更新”会直接查询客户端 GitHub Release，并按当前平台下载对应安装包到本地；下载完成后点击“打开安装包”启动安装。客户端不会把更新下载过程转交给浏览器，GitHub 链接仅用于查看来源和发布说明。Windows 使用 x64 安装器，macOS 使用对应架构的 DMG。
-
-## 数据与核心更新
-
-默认用户数据目录：
-
-| 平台 | 目录 |
+| 目标 | 命令 |
 | --- | --- |
-| Windows | `%LOCALAPPDATA%/DeepSeek Harness/` |
-| macOS | `~/Library/Application Support/DeepSeek Harness/` |
+| Windows x64 安装包 | `pnpm run client:package:win` |
+| macOS Apple 芯片 | `pnpm run client:package:mac:arm64` |
+| macOS Intel | `pnpm run client:package:mac:x64` |
 
-目录结构（系统 DSH 被复用时，核心目录会额外保存外部绑定）：
+### 上游源码和核心的区别
 
-```text
-DeepSeek Harness/
-├─ runtime/node/22.19.0/       # 按需下载的 Node.js
-├─ core/versions/<version>/    # 按版本保存的 DSH 核心
-├─ core/current.json           # 当前使用的核心版本
-├─ runtime-binding.json        # 本机 Node.js/全局 DSH 的已验证路径绑定
-└─ dsh-home/                   # DSH 用户数据，不随核心更新删除
-```
+仓库中的 `upstream/` 是 DeepSeek Harness 官方源码的 Git 子模块，用于维护者跟踪源码版本和检查兼容性。它不会打进客户端安装包。用户实际运行的 DSH 核心从官方 npm 渠道单独安装和更新。维护者同步源码的步骤见 [UPDATE_UPSTREAM.md](UPDATE_UPSTREAM.md)。
 
-顶部“更多”中的“检查核心更新”会读取 `client/core-channel.json`，从官方 npm registry 的 `dist-tags.latest` 获取候选版本，并用 SemVer 严格比较本地版本。只有官方版本更高时才会提示更新；相同版本显示已是最新，官方版本更低时会拒绝降级。复用系统 DSH 时，确认后使用原 Node.js/npm 更新全局官方安装；客户端托管模式则下载新版本、保留旧版本并重启本地核心。核心通道的唯一配置点如下：
+### 自动构建与发布
 
-当 `autoUpdate` 为 `false` 时，启动过程只复用已验证的本地核心，不会在后台自动访问 registry 或升级版本；核心升级由用户在设置中手动确认。启动安装和离线回退也会校验核心版本格式、最低版本要求和已发布版本记录。
+- `Basic CI` 在提交和 Pull Request 时进行源码检查和测试。
+- `Version Build` 可按 patch、minor 或 major 自动递增版本，构建 Windows 与 macOS 安装包并发布 GitHub Release。
 
-```json
-{
-  "packageName": "@deepseek-ai/dsh",
-  "registry": "https://registry.npmjs.org",
-  "distTag": "latest",
-  "minimumCoreVersion": "0.1.5-rc.1",
-  "autoUpdate": false,
-  "defaultPort": 3080
-}
-```
+</details>
 
-## GitHub Actions
+<div align="center">
 
-- `Basic CI`：在 `main` 推送和 Pull Request 时执行源码检查与测试；
-- `Version Build`：从 Actions 选择 patch/minor/major，自动读取当前版本并递增，同步四个版本文件、创建标签，在同一次运行中构建 Windows/macOS 安装包并发布 GitHub Release。
+[下载最新版本](https://github.com/isunky/DSH-Desktop/releases/latest) · [反馈问题](https://github.com/isunky/DSH-Desktop/issues)
 
-推荐在 GitHub 的 Actions 页面运行 `Version Build`，选择 `patch`、`minor` 或 `major`。例如当前版本为 `0.3.0`，选择 `patch` 会自动生成 `v0.3.1`；无需手工修改版本号。也可以在本地预览下一版本：
-
-```text
-pnpm run client:version:next
-pnpm run client:version:next -- minor
-pnpm run client:version:bump
-```
-
-Release 会提交四个版本文件并创建标签，随后在同一次工作流中完成三平台构建。Release note 会自动列出上一个可追溯版本以来的提交，并附带提交链接与版本对比链接。
-
-## 仓库结构
-
-```text
-.
-├─ client/
-│  ├─ runtime/                 # Node/DSH 启动与管理脚本
-│  ├─ tauri/                   # 启动页、沉浸式头部和图标
-│  ├─ core-channel.json        # DSH 核心渠道配置
-│  └─ client-info.json         # 客户端与发布信息
-├─ src-tauri/
-│  ├─ src/main.rs              # Tauri/Rust 壳与进程生命周期
-│  ├─ capabilities/            # Tauri 权限配置
-│  └─ tauri.conf.json          # 应用与打包配置
-├─ scripts/client.mjs          # 开发、检查和打包入口
-└─ upstream/                   # DeepSeek Harness 上游 Git submodule
-```
-
-## 与上游同步
-
-阅读 [UPDATE_UPSTREAM.md](UPDATE_UPSTREAM.md) 后执行：
-
-```sh
-pnpm run client:update-upstream
-pnpm run client:check
-```
-
-客户端不直接修改 `upstream/`，也不把上游桌面端作为运行时依赖；上游 submodule 用于源码跟踪、版本对照和后续兼容性验证。
-
-## 常见问题
-
-**首次启动为什么较慢？**
-
-首次启动需要访问 Node.js 下载站点和配置的 npm registry。Node.js 与核心完成缓存后，后续启动不再重复下载。
-
-**Windows 上没有看到终端窗口是正常的吗？**
-
-正常。桌面壳会隐藏 Node.js、核心安装任务和本地 DSH 服务的控制台窗口；启动状态与错误信息显示在客户端界面中。
-
-**如何清理本地产物？**
-
-```sh
-pnpm run client:clean
-```
-
-上游项目：<https://github.com/deepseek-ai/deepseek-harness>
-
-客户端发布页：<https://github.com/isunky/DSH-Desktop/releases>
+</div>
