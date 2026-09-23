@@ -2,8 +2,6 @@
 
 <img src="client/tauri/icons/dsh-launcher-lockup.png" alt="DSH Launcher" width="220">
 
-# DSH Launcher
-
 让 DeepSeek Harness 在 Windows 和 macOS 上更方便地启动和更新。
 
 <p>
