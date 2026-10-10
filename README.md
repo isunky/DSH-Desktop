@@ -1,29 +1,41 @@
+> [!IMPORTANT]
+> **本项目已停止更新与维护。**
+>
+> DeepSeek Harness 已提供官方桌面客户端，推荐大家直接使用官方客户端：
+> **[前往官网下载 DeepSeek Harness](https://www.deepseek.com/harness/)**。
+>
+> 本仓库保留源码与历史版本供参考，不再提供功能更新、问题修复或兼容性适配。
+
 <div align="center">
 
 <img src="client/tauri/icons/dsh-launcher-lockup.png" alt="DSH Launcher" width="220">
 
-让 DeepSeek Harness 在 Windows 和 macOS 上更方便地启动和更新。
+DSH Launcher · 已停止更新，推荐使用 DeepSeek Harness 官方客户端。
 
 <p>
-  <a href="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml"><img src="https://github.com/isunky/DSH-Desktop/actions/workflows/ci.yml/badge.svg?branch=main" alt="Basic CI"></a>
-  <a href="https://github.com/isunky/DSH-Desktop/releases"><img src="https://img.shields.io/github/v/release/isunky/DSH-Desktop?display_name=tag&sort=semver" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/项目状态-停止更新-lightgrey" alt="项目已停止更新">
 </p>
 
 <p>
-  <a href="https://github.com/isunky/DSH-Desktop/releases/latest">下载 DSH Launcher</a>
+  <a href="https://www.deepseek.com/harness/"><strong>下载 DeepSeek Harness 官方客户端</strong></a>
   ·
   <a href="https://github.com/deepseek-ai/deepseek-harness">了解 DeepSeek Harness 官方项目</a>
   ·
-  <a href="https://github.com/isunky/DSH-Desktop/issues">反馈问题</a>
+  <a href="https://github.com/isunky/DSH-Desktop/releases">查看 DSH Launcher 历史版本</a>
 </p>
 
 </div>
 
-DSH Launcher 是一个轻量桌面启动器。安装后，它会帮你准备并启动 DSH 核心和本地界面，也可以分别检查 DSH 核心与启动器本身的更新。
+DSH Launcher 曾是一个轻量的非官方桌面启动器，用于准备并启动 DSH 核心和本地界面。随着官方桌面客户端推出，本项目已停止更新，建议新用户与现有用户使用[官方客户端](https://www.deepseek.com/harness/)。
+
+以下说明仅供历史版本用户参考。切换客户端前，可按下方说明备份原有数据；本文不提供自动迁移步骤。
+
+<details>
+<summary>历史版本使用说明：安装、更新与数据备份</summary>
 
 ## 下载和安装
 
-前往[最新版本下载页](https://github.com/isunky/DSH-Desktop/releases/latest)，在最新版本下选择适合你电脑的安装包：
+如需查阅历史安装包，可前往[历史版本发布页](https://github.com/isunky/DSH-Desktop/releases)，选择适合你电脑的安装包：
 
 | 电脑 | 下载文件 | 安装方式 |
 | --- | --- | --- |
@@ -77,14 +89,18 @@ DSH Launcher 是一个轻量桌面启动器。安装后，它会帮你准备并�
 
 启动器只从 [DSH Launcher 官方 GitHub Releases](https://github.com/isunky/DSH-Desktop/releases) 获取自身更新。DSH 核心来自 [DeepSeek 官方项目](https://github.com/deepseek-ai/deepseek-harness)的发布渠道。你可以在设置中点击对应仓库链接查看来源和版本说明。
 
-如果问题仍然存在，请到[问题反馈页](https://github.com/isunky/DSH-Desktop/issues)提交问题，并附上系统版本、启动页面显示的错误信息，以及（如存在）`startup-error.log`。提交日志前，请检查其中没有你不希望公开的个人信息。
+本项目已停止维护，历史版本问题不再提供修复。推荐改用[DeepSeek Harness 官方客户端](https://www.deepseek.com/harness/)。
+
+</details>
 
 ## 项目说明
 
-DSH Launcher 是社区维护的独立桌面启动器，并非 DeepSeek 官方产品。DeepSeek Harness 的核心程序由 [DeepSeek 官方项目](https://github.com/deepseek-ai/deepseek-harness)发布；本启动器的开发者是 Sunky。
+DSH Launcher 是由 Sunky 开发的独立桌面启动器，并非 DeepSeek 官方产品，目前已停止更新与维护。DeepSeek Harness 的核心程序及官方客户端由 [DeepSeek 官方项目](https://github.com/deepseek-ai/deepseek-harness)发布。
 
 <details>
-<summary>面向开发者：构建、测试和上游同步</summary>
+<summary>历史开发说明：构建、测试和上游同步</summary>
+
+以下内容保留供源码研究和自行构建参考，不代表本项目仍在维护或发布新版本。
 
 ### 本地开发
 
@@ -119,6 +135,6 @@ Windows 一键构建仅生成安装包，不生成便携版。也可用 `pnpm ru
 
 <div align="center">
 
-[下载最新版本](https://github.com/isunky/DSH-Desktop/releases/latest) · [反馈问题](https://github.com/isunky/DSH-Desktop/issues)
+**本项目已停止更新 · [使用 DeepSeek Harness 官方客户端](https://www.deepseek.com/harness/)**
 
 </div>
